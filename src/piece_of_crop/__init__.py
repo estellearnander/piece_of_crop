@@ -2,6 +2,13 @@
 
 from .data import (
     BAND_NAMES,
+    apply_buffer,
+    assign_blocks,
+    compute_band_stats,
+    nearest_distance_km,
+    normalise,
+    select_bands,
+    spatial_split,
     CLASS_NAMES,
     RGB_BAND_INDICES,
     check_file,
