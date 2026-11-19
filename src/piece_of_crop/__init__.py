@@ -2,6 +2,12 @@
 
 from .data import (
     BAND_NAMES,
+    EuroSATDataset,
+    augment,
+    build_cache,
+    load_cache,
+    make_loaders,
+    read_split,
     apply_buffer,
     assign_blocks,
     compute_band_stats,
@@ -13,6 +19,7 @@ from .data import (
     RGB_BAND_INDICES,
     check_file,
     find_duplicates,
+    get_cache,
     list_files,
     read_bands,
     read_center_lonlat,

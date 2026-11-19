@@ -312,3 +312,132 @@ def select_bands(bands: np.ndarray, input_type: str) -> np.ndarray:
     if input_type == "rgb":
         return bands[RGB_BAND_INDICES]
     raise ValueError(f"input_type must be 'rgb' or '13band', not {input_type!r}")
+
+
+# ---------------------------------------------------------------------------
+# Cache, Dataset and DataLoaders (step 1.8)
+# ---------------------------------------------------------------------------
+
+import torch
+from torch.utils.data import DataLoader, Dataset
+
+
+def read_split(split_path: str | Path) -> pd.DataFrame:
+    """Read results/split.csv and add cache_row, the row of each patch in the cache.
+
+    The cache stores the patches in the same order as split.csv, so row i of the
+    file is row i of the cache.
+    """
+    split = pd.read_csv(split_path)
+    split["cache_row"] = np.arange(len(split))
+    return split
+
+
+def build_cache(split: pd.DataFrame, data_dir: str | Path, cache_path: str | Path) -> None:
+    """Write all raw patches into one .npy file, in the order of split.csv.
+
+    The values are stored as uint16, the same type as in the GeoTIFFs, so nothing
+    is rounded or changed. A small .csv next to the cache lists the file of every
+    row, so a wrong order can be detected. If the cache already exists, nothing
+    is done.
+    """
+    cache_path = Path(cache_path)
+    files_path = cache_path.with_suffix(".files.csv")
+    if cache_path.exists() and files_path.exists():
+        print(f"Cache already exists: {cache_path}")
+        return
+
+    data_dir = Path(data_dir)
+    cache = np.lib.format.open_memmap(cache_path, mode="w+", dtype=np.uint16,
+                                      shape=(len(split), *EXPECTED_SHAPE))
+    for row, (class_name, file) in enumerate(zip(split["class_name"], split["file"])):
+        with rasterio.open(data_dir / class_name / file) as dataset:
+            cache[row] = dataset.read()
+    cache.flush()
+    del cache
+    split[["file"]].to_csv(files_path, index=False)
+    print(f"Wrote {len(split)} patches to {cache_path}")
+
+
+def load_cache(cache_path: str | Path, split: pd.DataFrame) -> np.ndarray:
+    """Open the cache without loading it into memory, after checking its row order."""
+    cache_path = Path(cache_path)
+    cached_files = pd.read_csv(cache_path.with_suffix(".files.csv"))["file"]
+    if not cached_files.equals(split["file"].reset_index(drop=True)):
+        raise ValueError("The cache rows do not match split.csv. Delete the cache and build it again.")
+    return np.load(cache_path, mmap_mode="r")
+
+
+def get_cache(split: pd.DataFrame, data_dir: str | Path, cache_path: str | Path) -> np.ndarray:
+    """Return the cache, building it first if it does not exist yet.
+
+    Every training notebook calls this, so nobody needs a separate setup step:
+    the first notebook run on a machine builds the cache once, later runs only
+    load it. Same idea as the course datasets with download=True, which fetch
+    the data only when it is missing (ImageClassificationML.pdf, page 2).
+    """
+    build_cache(split, data_dir, cache_path)
+    return load_cache(cache_path, split)
+
+
+def augment(bands: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Return the patch turned by a random multiple of 90 degrees and maybe flipped.
+
+    A satellite patch has no "up", so all 8 turned and flipped versions are real
+    looking images. Only pixels move: no value is changed or invented.
+    """
+    turns = rng.integers(0, 4)
+    bands = np.rot90(bands, k=turns, axes=(1, 2))
+    if rng.random() < 0.5:
+        bands = bands[:, :, ::-1]
+    return np.ascontiguousarray(bands)
+
+
+class EuroSATDataset(Dataset):
+    """Patches of one split, normalised, as RGB or 13 bands, optionally augmented.
+
+    Follows the course pattern: a Dataset implements __len__ and __getitem__ and
+    returns the input tensor and the target (lecture_7_intro_to_DL-3.pdf, slide 4).
+    """
+
+    def __init__(self, split_rows: pd.DataFrame, cache: np.ndarray, band_stats: pd.DataFrame,
+                 input_type: str, augment_data: bool = False, seed: int = 0):
+        self.cache_rows = split_rows["cache_row"].to_numpy()
+        self.labels = split_rows["label"].to_numpy()
+        self.cache = cache
+        self.band_stats = band_stats
+        self.input_type = input_type
+        self.augment_data = augment_data
+        self.rng = np.random.default_rng(seed)
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, index: int):
+        raw = self.cache[self.cache_rows[index]].astype(np.float32)
+        bands = normalise(raw, self.band_stats)
+        bands = select_bands(bands, self.input_type)
+        if self.augment_data:
+            bands = augment(bands, self.rng)
+        image = torch.from_numpy(np.ascontiguousarray(bands))
+        label = int(self.labels[index])
+        return image, label
+
+
+def make_loaders(split: pd.DataFrame, cache: np.ndarray, band_stats: pd.DataFrame,
+                 input_type: str, batch_size: int = 128, seed: int = 0) -> dict:
+    """Return DataLoaders for train (augmented, shuffled), val and test (fixed order).
+
+    Buffer patches are not used. num_workers is 0, as in the course notebook when
+    no CUDA GPU is available (lecture_12_finetuning_live_WITH_RESULTS, setup).
+    """
+    loaders = {}
+    for split_name in ["train", "val", "test"]:
+        rows = split[split["split"] == split_name]
+        is_train = split_name == "train"
+        dataset = EuroSATDataset(rows, cache, band_stats, input_type,
+                                 augment_data=is_train, seed=seed)
+        generator = torch.Generator().manual_seed(seed)
+        loaders[split_name] = DataLoader(dataset, batch_size=batch_size, shuffle=is_train,
+                                         num_workers=0, generator=generator)
+    return loaders

@@ -19,7 +19,8 @@ pytest -q
 
 ## Data
 
-See data/README.md.
+See data/README.md. The first training notebook you run builds `data/eurosat_cache.npy`
+(about 2.9 GB, not in Git) from the GeoTIFFs. This happens once; later runs only load it.
 
 ## Project structure
 

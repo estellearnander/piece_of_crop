@@ -78,3 +78,79 @@ def test_select_bands_shapes():
     bands = np.zeros((13, 64, 64), dtype=np.float32)
     assert select_bands(bands, "rgb").shape == (3, 64, 64)
     assert select_bands(bands, "13band").shape == (13, 64, 64)
+
+
+from pathlib import Path
+
+import pytest
+
+from piece_of_crop.data import EuroSATDataset, augment, load_cache, make_loaders, read_bands, read_split
+
+
+def _toy_loader_inputs(n_per_split=6):
+    rng = np.random.default_rng(0)
+    n = 3 * n_per_split
+    cache = rng.integers(0, 5000, (n, 13, 64, 64)).astype(np.uint16)
+    split = pd.DataFrame({
+        "cache_row": np.arange(n),
+        "label": np.arange(n) % 10,
+        "split": ["train"] * n_per_split + ["val"] * n_per_split + ["test"] * n_per_split,
+    })
+    stats = pd.DataFrame({"clip_low": [0.0] * 13, "clip_high": [5000.0] * 13,
+                          "mean": [2500.0] * 13, "std": [1000.0] * 13})
+    return split, cache, stats
+
+
+@pytest.mark.parametrize("input_type, channels", [("rgb", 3), ("13band", 13)])
+def test_loader_batch_shapes_and_labels(input_type, channels):
+    split, cache, stats = _toy_loader_inputs()
+    loaders = make_loaders(split, cache, stats, input_type, batch_size=4, seed=0)
+    images, labels = next(iter(loaders["train"]))
+    assert images.shape == (4, channels, 64, 64)
+    assert images.dtype.is_floating_point
+    assert labels.min() >= 0 and labels.max() <= 9
+
+
+def test_validation_patch_is_identical_every_time():
+    split, cache, stats = _toy_loader_inputs()
+    val = EuroSATDataset(split[split["split"] == "val"], cache, stats, "13band", augment_data=False)
+    first, _ = val[0]
+    second, _ = val[0]
+    assert np.array_equal(first.numpy(), second.numpy())
+
+
+def test_augment_only_moves_pixels():
+    bands = np.random.default_rng(1).normal(size=(13, 64, 64)).astype(np.float32)
+    moved = augment(bands, np.random.default_rng(2))
+    assert moved.shape == bands.shape
+    assert np.array_equal(np.sort(moved.ravel()), np.sort(bands.ravel()))
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CACHE_PATH = PROJECT_ROOT / "data" / "eurosat_cache.npy"
+
+
+@pytest.mark.skipif(not CACHE_PATH.exists(), reason="cache not built on this machine")
+def test_cache_rows_match_the_geotiffs():
+    split = read_split(PROJECT_ROOT / "results" / "split.csv")
+    cache = load_cache(CACHE_PATH, split)
+    for row in [0, 1234, len(split) - 1]:
+        path = PROJECT_ROOT / "data" / "EuroSAT_MS" / split.loc[row, "class_name"] / split.loc[row, "file"]
+        assert np.array_equal(cache[row].astype(np.float32), read_bands(path))
+
+
+def test_get_cache_builds_when_missing_and_then_reuses(tmp_path):
+    from pathlib import Path
+    from piece_of_crop import get_cache, read_bands, read_split
+    root = Path(__file__).resolve().parents[1]
+    data_dir = root / "data" / "EuroSAT_MS"
+    if not data_dir.exists():
+        pytest.skip("EuroSAT_MS not downloaded")
+    split = read_split(root / "results" / "split.csv").head(3).copy()
+    cache_path = tmp_path / "cache.npy"
+    cache = get_cache(split, data_dir, cache_path)
+    first = data_dir / split.loc[0, "class_name"] / split.loc[0, "file"]
+    assert np.array_equal(cache[0].astype(np.float32), read_bands(first))
+    modified = cache_path.stat().st_mtime_ns
+    get_cache(split, data_dir, cache_path)
+    assert cache_path.stat().st_mtime_ns == modified
