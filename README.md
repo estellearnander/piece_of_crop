@@ -23,7 +23,8 @@ See data/README.md.
 
 ## Project structure
 
-- notebooks/: one notebook per owner (01_data, 02_rf, 03_cnn, 04_resnet)
+- notebooks/: 01_data_exploration, 02_split_and_preprocessing, 03_baseline_rf, 04_cnn,
+  05_transfer_resnet, 06_evaluation, 07_haze (optional). Run them in this order.
 - src/piece_of_crop/: reusable code imported by the notebooks
 - results/predictions/: test predictions, one CSV per model, input and seed,
   named <model>_<input>_seed<n>.csv with columns file, true_label, pred_label, prob_0 to prob_9
