@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "piece-of-crop"
+version = "0.1.0"
+description = "Land-cover classification of Sentinel-2 patches (EuroSAT): RGB vs 13 bands for crop insurers"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "torch",
+    "torchvision",
+    "rasterio",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
