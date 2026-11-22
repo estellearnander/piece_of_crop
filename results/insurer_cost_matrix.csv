@@ -1,0 +1,11 @@
+actual_class,AnnualCrop,Forest,HerbaceousVegetation,Highway,Industrial,Pasture,PermanentCrop,Residential,River,SeaLake
+AnnualCrop,0.0,9.0,8.0,9.0,9.0,8.0,8.0,9.0,2.0,2.0
+Forest,9.0,0.0,9.0,2.0,2.0,9.0,9.0,2.0,2.0,2.0
+HerbaceousVegetation,8.0,9.0,0.0,9.0,9.0,6.0,8.0,9.0,2.0,2.0
+Highway,9.0,2.0,9.0,0.0,2.0,9.0,9.0,2.0,2.0,2.0
+Industrial,9.0,2.0,9.0,2.0,0.0,9.0,9.0,2.0,2.0,2.0
+Pasture,8.0,9.0,6.0,9.0,9.0,0.0,8.0,9.0,2.0,2.0
+PermanentCrop,8.0,9.0,8.0,9.0,9.0,8.0,0.0,9.0,2.0,2.0
+Residential,9.0,2.0,9.0,2.0,2.0,9.0,9.0,0.0,2.0,2.0
+River,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,0.0,2.0
+SeaLake,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,0.0
