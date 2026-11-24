@@ -154,3 +154,15 @@ def test_get_cache_builds_when_missing_and_then_reuses(tmp_path):
     modified = cache_path.stat().st_mtime_ns
     get_cache(split, data_dir, cache_path)
     assert cache_path.stat().st_mtime_ns == modified
+
+
+def test_eval_loader_is_not_augmented_or_shuffled():
+    import torch
+    from piece_of_crop.data import make_eval_loader
+    split, cache, stats = _toy_loader_inputs()
+    loader = make_eval_loader(split, cache, stats, "13band", "train", batch_size=4)
+    first = torch.cat([images for images, _ in loader])
+    second = torch.cat([images for images, _ in loader])
+    labels = torch.cat([labels for _, labels in loader])
+    assert torch.equal(first, second)
+    assert labels.tolist() == split.loc[split["split"] == "train", "label"].tolist()

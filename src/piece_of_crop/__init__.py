@@ -16,6 +16,7 @@ from .data import (
     get_cache,
     list_files,
     load_cache,
+    make_eval_loader,
     make_loaders,
     nearest_distance_km,
     normalise,

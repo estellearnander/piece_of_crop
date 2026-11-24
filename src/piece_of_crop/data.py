@@ -453,3 +453,16 @@ def make_loaders(split: pd.DataFrame, cache: np.ndarray, band_stats: pd.DataFram
         loaders[split_name] = DataLoader(dataset, batch_size=batch_size, shuffle=is_train,
                                          num_workers=0, generator=generator)
     return loaders
+
+
+def make_eval_loader(split: pd.DataFrame, cache: np.ndarray, band_stats: pd.DataFrame,
+                     input_type: str, subset: str, batch_size: int = 128) -> DataLoader:
+    """A DataLoader for one subset without augmentation or shuffling.
+
+    Used to score a trained model on its own training patches: the training
+    loader augments and shuffles, so it would not give the plain training score.
+    """
+    rows = split[split["split"] == subset]
+    dataset = EuroSATDataset(rows, cache, band_stats, input_type, augment_data=False)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
