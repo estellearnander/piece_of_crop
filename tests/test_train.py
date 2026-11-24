@@ -87,3 +87,15 @@ def test_fit_restores_a_checkpoint_and_test_order_matches_split():
     outcome = evaluate_model(model, loaders["test"], loss_fn, torch.device("cpu"))
     check_test_order(split, outcome["y_true"])
     assert np.allclose(outcome["proba"].sum(axis=1), 1, atol=1e-5)
+
+
+def test_tuning_picks_the_best_validation_combination():
+    from piece_of_crop import tune_random_forest
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 4))
+    y = (X[:, 0] > 0).astype(int)
+    table, best = tune_random_forest(X[:150], y[:150], X[150:], y[150:],
+                                     {"max_depth": [1, None], "min_samples_leaf": [1, 5]}, n_estimators=20)
+    assert len(table) == 4
+    assert table["val_macro_f1"].is_monotonic_decreasing
+    assert set(best) == {"max_depth", "min_samples_leaf"}

@@ -1,4 +1,5 @@
-"""Tabular features for the random forest baseline (notebook 03, also used by notebook 07).
+"""Tabular features and hyperparameter tuning for the random forest baseline
+(notebook 03; the features are also used by notebook 07).
 
 Each band is clipped and standardised with the training statistics from
 band_stats.csv, then summarised by its mean and standard deviation over the patch.
@@ -6,6 +7,9 @@ band_stats.csv, then summarised by its mean and standard deviation over the patc
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.model_selection import ParameterGrid
 
 from .data import BAND_NAMES
 
@@ -71,3 +75,26 @@ def extract_rf_features(
     if not np.isfinite(X_rgb).all() or not np.isfinite(X_ms).all():
         raise ValueError("Some extracted features are NaN/inf; inspect input TIFFs and stats")
     return X_rgb, X_ms, rgb_columns, ms_columns
+
+
+def tune_random_forest(X_train, y_train, X_val, y_val, param_grid: dict, seed: int = 0,
+                       n_estimators: int = 200):
+    """Try every combination in param_grid and score it on the validation set only.
+
+    Each combination is trained on the training patches and scored by macro-F1
+    on the validation patches; the test patches are never used here.
+    Returns (table of all combinations sorted from best to worst, best parameters).
+    """
+    rows, candidates = [], []
+    for params in ParameterGrid(param_grid):
+        model = RandomForestClassifier(n_estimators=n_estimators, random_state=seed, n_jobs=-1, **params)
+        model.fit(X_train, y_train)
+        predicted = model.predict(X_val)
+        candidates.append(params)
+        rows.append({**{key: str(value) for key, value in params.items()},
+                     "val_accuracy": accuracy_score(y_val, predicted),
+                     "val_macro_f1": f1_score(y_val, predicted, average="macro")})
+    table = pd.DataFrame(rows)
+    best = int(table["val_macro_f1"].to_numpy().argmax())
+    return table.sort_values("val_macro_f1", ascending=False).reset_index(drop=True), candidates[best]
+

@@ -27,7 +27,7 @@ from .data import (
     summarise_files,
     to_rgb_image,
 )
-from .features import RGB_INDICES, extract_rf_features
+from .features import RGB_INDICES, extract_rf_features, tune_random_forest
 from .cnn import SmallCNN, build_cnn, count_parameters
 from .resnet import build_resnet, resnet_param_groups
 from .train import (

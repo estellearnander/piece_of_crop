@@ -46,17 +46,17 @@ See data/README.md. The first training notebook you run builds `data/eurosat_cac
    the instructions in data/README.md.
 3. Extract the dataset into data/EuroSAT_MS/, with class
    folders such as AnnualCrop directly inside that directory.
-4. Open the repository root in VS Code and select the
-   configured Python environment as the Jupyter kernel.
-5. Run notebooks 01 through 07 in numerical order.
-   Check that each notebook resolves the project root
-   correctly before running all cells.
+4. Open the project in Jupyter or PyCharm and select the
+   `piece-of-crop` conda environment as the notebook kernel.
+5. Run notebooks 01 through 07 in numerical order, each with
+   a restarted kernel (Restart and Run All).
 
 Notebook execution order:
 
 - 01: Explore data and generate descriptive figures.
-- 02: Create the train/validation/test split, training-only
-  band statistics and the reusable EuroSAT cache.
+- 02: Load and check the fixed train/validation/test split and
+  training-only band statistics (made only if the files are missing),
+  and check the EuroSAT cache.
 - 03: Train and evaluate Random Forest baselines.
 - 04: Train RGB and 13-band CNN models.
 - 05: Fine-tune RGB and 13-band ResNet18 models.
@@ -64,8 +64,12 @@ Notebook execution order:
 - 07: Test model robustness under synthetic haze.
 
 Notebook 01 generates results/file_summary.csv locally.
-Notebook 02 creates data/eurosat_cache.npy, which is reused
-by subsequent notebooks.
+The first notebook that needs the patches builds data/eurosat_cache.npy
+once; later notebooks only load it.
+
+results/split.csv and results/band_stats.csv are fixed files. Do not
+delete or regenerate them: every model is trained and tested on them,
+and a different scikit-learn version can produce a different split.
 
 Model checkpoints and raw data are excluded from Git.
 To reproduce the models from scratch, the training notebooks
