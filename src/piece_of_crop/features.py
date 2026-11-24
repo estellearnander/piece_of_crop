@@ -1,127 +1,15 @@
-"""Random Forest baseline helpers for the EuroSAT multispectral project.
+"""Tabular features for the random forest baseline (notebook 03, also used by notebook 07).
 
-Place this file at: src/piece_of_crop/features.py
-The notebook imports it directly (no ``piece_of_crop`` package installation needed).
-
-Assumptions from notebooks 01/02:
-- results/split.csv rows define cache ordering.
-- Cache stores uint16 arrays with shape (n_patches, 13, 64, 64).
-- results/band_stats.csv was fit on TRAINING images only.
-- Sentinel-2 bands follow B01..B12, B8A last, as validated in notebook 01.
+Each band is clipped and standardised with the training statistics from
+band_stats.csv, then summarised by its mean and standard deviation over the patch.
 """
-
-from __future__ import annotations
-
-import os
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-BAND_NAMES = (
-    "B01", "B02", "B03", "B04", "B05", "B06", "B07",
-    "B08", "B09", "B10", "B11", "B12", "B8A",
-)
-CLASS_NAMES = (
-    "AnnualCrop", "Forest", "HerbaceousVegetation", "Highway",
-    "Industrial", "Pasture", "PermanentCrop", "Residential",
-    "River", "SeaLake",
-)
-RGB_INDICES = (1, 2, 3)  # B02, B03, B04; same 3 channels as notebook 02
+from .data import BAND_NAMES
 
-
-def read_split(path: str | Path) -> pd.DataFrame:
-    """Load the immutable spatial split saved by notebook 02 (do NOT reshuffle)."""
-    path = Path(path)
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Missing {path}. Get results/split.csv from the team's repository "
-            "or run notebook 02 in the full project."
-        )
-    split = pd.read_csv(path)
-    required = {"file", "class_name", "label", "split"}
-    missing = required.difference(split.columns)
-    if missing:
-        raise ValueError(f"{path} is missing columns: {sorted(missing)}")
-    if split["split"].isna().any() or not split["split"].isin(
-        ["train", "val", "test", "buffer"]
-    ).all():
-        raise ValueError("Unexpected split values. Expected train/val/test/buffer.")
-    if not {"train", "val", "test"}.issubset(set(split["split"])):
-        raise ValueError("split.csv must contain train, val, and test examples.")
-    split["label"] = split["label"].astype(int)
-    return split.reset_index(drop=True)
-
-
-def get_cache(
-    split: pd.DataFrame, data_dir: str | Path, cache_path: str | Path
-) -> np.ndarray:
-    """Memory-map the shared cache; build it from raw TIFFs if necessary.
-
-    Building the cache requires EuroSAT_MS/ and rasterio. The file order matches
-    the rows of split.csv exactly, including buffer rows.
-    """
-    cache_path = Path(cache_path)
-    data_dir = Path(data_dir)
-
-    if not cache_path.is_file():
-        if not data_dir.is_dir():
-            raise FileNotFoundError(
-                f"Cache not found: {cache_path}\n"
-                f"Raw images not found: {data_dir}\n"
-                "The EuroSAT_MS image data and the ~2.9 GB cache are not stored "
-                "in the notebooks. Download the EuroSAT multispectral GeoTIFF "
-                "data into data/EuroSAT_MS/<class>/<image>.tif, or copy the "
-                "existing data/eurosat_cache.npy from a teammate."
-            )
-        try:
-            import rasterio
-        except ImportError as exc:
-            raise ImportError(
-                "The cache is missing, so rasterio is needed to read TIFFs. "
-                "Install it with `python -m pip install rasterio` (using the "
-                "same environment as your notebook)."
-            ) from exc
-
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = cache_path.with_name(".eurosat_cache_build.npy")
-        if tmp_path.exists():
-            tmp_path.unlink()
-        try:
-            cache = np.lib.format.open_memmap(
-                tmp_path, mode="w+", dtype=np.uint16,
-                shape=(len(split), len(BAND_NAMES), 64, 64),
-            )
-            for idx, row in enumerate(split.itertuples(index=False)):
-                tif = data_dir / row.class_name / row.file
-                if not tif.is_file():
-                    raise FileNotFoundError(f"Missing EuroSAT image: {tif}")
-                with rasterio.open(tif) as src:
-                    raw = src.read()
-                if raw.shape != (len(BAND_NAMES), 64, 64):
-                    raise ValueError(f"Wrong band/image shape for {tif}: {raw.shape}")
-                cache[idx] = raw
-                if (idx + 1) % 3000 == 0:
-                    print(f"Cached {idx + 1:,} / {len(split):,} images")
-            cache.flush()
-            del cache
-            os.replace(tmp_path, cache_path)
-            print(f"Created {cache_path}")
-        except Exception:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
-
-    cache = np.load(cache_path, mmap_mode="r", allow_pickle=False)
-    expected = (len(split), len(BAND_NAMES), 64, 64)
-    if cache.shape != expected:
-        raise ValueError(
-            f"Cache shape {cache.shape} != expected {expected}. "
-            "Rebuild the cache using the exact results/split.csv row order."
-        )
-    return cache
+RGB_INDICES = (1, 2, 3)  # B02, B03, B04 (feature order used for the saved RF results)
 
 
 def extract_rf_features(

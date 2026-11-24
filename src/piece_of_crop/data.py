@@ -322,6 +322,18 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 
+def find_project_root(start: str | Path | None = None) -> Path:
+    """Return the project folder (the one that contains pyproject.toml).
+
+    Works whether a notebook runs from the project root or from notebooks/.
+    """
+    here = Path(start or Path.cwd()).resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / "pyproject.toml").is_file() and (candidate / "src" / "piece_of_crop").is_dir():
+            return candidate
+    raise FileNotFoundError("Cannot find the piece_of_crop project folder above " + str(here))
+
+
 def read_split(split_path: str | Path) -> pd.DataFrame:
     """Read results/split.csv and add cache_row, the row of each patch in the cache.
 

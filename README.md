@@ -27,6 +27,13 @@ See data/README.md. The first training notebook you run builds `data/eurosat_cac
 - notebooks/: 01_data_exploration, 02_split_and_preprocessing, 03_baseline_rf, 04_cnn,
   05_transfer_resnet, 06_evaluation, 07_haze (optional). Run them in this order.
 - src/piece_of_crop/: reusable code imported by the notebooks
+  - data.py: file checks, spatial split, normalisation, cache, Dataset and DataLoaders
+  - features.py: random forest features
+  - cnn.py: the small CNN
+  - resnet.py: the ResNet18 adapted to 3 or 13 bands
+  - train.py: training loop, evaluation and the shared prediction file format
+  - evaluate.py: cost matrices, loading predictions, block bootstrap
+  - haze.py: synthetic haze and predictions on hazy patches
 - results/predictions/: test predictions, one CSV per model, input and seed,
   named <model>_<input>_seed<n>.csv (inspect saved CSV headers for the exact prediction columns)
 - results/figures/: saved figures
