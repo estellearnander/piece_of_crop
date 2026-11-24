@@ -83,8 +83,9 @@ def test_select_bands_shapes():
 from pathlib import Path
 
 import pytest
+import torch
 
-from piece_of_crop.data import EuroSATDataset, augment, load_cache, make_loaders, read_bands, read_split
+from piece_of_crop.data import EuroSATDataset, TRAIN_TRANSFORM, get_cache, make_loaders, read_bands, read_split
 
 
 def _toy_loader_inputs(n_per_split=6):
@@ -104,65 +105,48 @@ def _toy_loader_inputs(n_per_split=6):
 @pytest.mark.parametrize("input_type, channels", [("rgb", 3), ("13band", 13)])
 def test_loader_batch_shapes_and_labels(input_type, channels):
     split, cache, stats = _toy_loader_inputs()
-    loaders = make_loaders(split, cache, stats, input_type, batch_size=4, seed=0)
+    loaders = make_loaders(split, cache, stats, input_type, batch_size=4)
     images, labels = next(iter(loaders["train"]))
     assert images.shape == (4, channels, 64, 64)
-    assert images.dtype.is_floating_point
+    assert images.dtype == torch.float32
     assert labels.min() >= 0 and labels.max() <= 9
 
 
-def test_validation_patch_is_identical_every_time():
+def test_dataset_normalises_like_the_numpy_function():
+    from piece_of_crop.data import normalise
     split, cache, stats = _toy_loader_inputs()
-    val = EuroSATDataset(split[split["split"] == "val"], cache, stats, "13band", augment_data=False)
-    first, _ = val[0]
-    second, _ = val[0]
-    assert np.array_equal(first.numpy(), second.numpy())
+    dataset = EuroSATDataset(split, cache, stats, "13band")
+    expected = normalise(cache[0].astype(np.float32), stats)
+    assert np.allclose(dataset[0][0].numpy(), expected, atol=1e-5)
 
 
-def test_augment_only_moves_pixels():
-    bands = np.random.default_rng(1).normal(size=(13, 64, 64)).astype(np.float32)
-    moved = augment(bands, np.random.default_rng(2))
-    assert moved.shape == bands.shape
-    assert np.array_equal(np.sort(moved.ravel()), np.sort(bands.ravel()))
+def test_validation_and_test_loaders_keep_the_split_order():
+    split, cache, stats = _toy_loader_inputs()
+    loaders = make_loaders(split, cache, stats, "13band", batch_size=4)
+    for name in ("val", "test"):
+        labels = torch.cat([labels for _, labels in loaders[name]])
+        assert labels.tolist() == split.loc[split["split"] == name, "label"].tolist()
+
+
+def test_training_flips_only_move_pixels():
+    image = torch.randn(13, 64, 64)
+    flipped = TRAIN_TRANSFORM(image)
+    assert flipped.shape == image.shape
+    assert torch.equal(flipped.flatten().sort().values, image.flatten().sort().values)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CACHE_PATH = PROJECT_ROOT / "data" / "eurosat_cache.npy"
+DATA_DIR = PROJECT_ROOT / "data" / "EuroSAT_MS"
 
 
-@pytest.mark.skipif(not CACHE_PATH.exists(), reason="cache not built on this machine")
-def test_cache_rows_match_the_geotiffs():
-    split = read_split(PROJECT_ROOT / "results" / "split.csv")
-    cache = load_cache(CACHE_PATH, split)
-    for row in [0, 1234, len(split) - 1]:
-        path = PROJECT_ROOT / "data" / "EuroSAT_MS" / split.loc[row, "class_name"] / split.loc[row, "file"]
-        assert np.array_equal(cache[row].astype(np.float32), read_bands(path))
-
-
-def test_get_cache_builds_when_missing_and_then_reuses(tmp_path):
-    from pathlib import Path
-    from piece_of_crop import get_cache, read_bands, read_split
-    root = Path(__file__).resolve().parents[1]
-    data_dir = root / "data" / "EuroSAT_MS"
-    if not data_dir.exists():
-        pytest.skip("EuroSAT_MS not downloaded")
-    split = read_split(root / "results" / "split.csv").head(3).copy()
+@pytest.mark.skipif(not DATA_DIR.exists(), reason="EuroSAT_MS not downloaded")
+def test_cache_is_built_in_split_order_and_then_reused(tmp_path):
+    split = read_split(PROJECT_ROOT / "results" / "split.csv").head(3)
     cache_path = tmp_path / "cache.npy"
-    cache = get_cache(split, data_dir, cache_path)
-    first = data_dir / split.loc[0, "class_name"] / split.loc[0, "file"]
-    assert np.array_equal(cache[0].astype(np.float32), read_bands(first))
+    cache = get_cache(split, DATA_DIR, cache_path)
+    for row in range(3):
+        path = DATA_DIR / split.loc[row, "class_name"] / split.loc[row, "file"]
+        assert np.array_equal(cache[row].astype(np.float32), read_bands(path))
     modified = cache_path.stat().st_mtime_ns
-    get_cache(split, data_dir, cache_path)
+    get_cache(split, DATA_DIR, cache_path)
     assert cache_path.stat().st_mtime_ns == modified
-
-
-def test_eval_loader_is_not_augmented_or_shuffled():
-    import torch
-    from piece_of_crop.data import make_eval_loader
-    split, cache, stats = _toy_loader_inputs()
-    loader = make_eval_loader(split, cache, stats, "13band", "train", batch_size=4)
-    first = torch.cat([images for images, _ in loader])
-    second = torch.cat([images for images, _ in loader])
-    labels = torch.cat([labels for _, labels in loader])
-    assert torch.equal(first, second)
-    assert labels.tolist() == split.loc[split["split"] == "train", "label"].tolist()

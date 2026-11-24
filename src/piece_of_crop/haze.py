@@ -12,13 +12,13 @@ import io
 import numpy as np
 import pandas as pd
 import torch
+from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from .cnn import build_cnn
+from .cnn import SmallCNN
 from .data import CLASS_NAMES, normalise, select_bands
 from .features import extract_rf_features
 from .resnet import build_resnet
-from .train import resize_images
 
 # Band order B01, B02, B03, B04, B05, B06, B07, B08, B09, B10, B11, B12, B8A.
 # Hand-set factors: short (blue) wavelengths get more haze than infrared.
@@ -77,23 +77,22 @@ class HazyTestDataset(Dataset):
 
 
 def load_deep_model(models_dir, family: str, input_type: str, seed: int, device):
-    """Load a saved CNN ("cnn") or ResNet ("resnet") checkpoint for inference.
+    """Load a saved CNN ("cnn") or ResNet ("resnet") for inference.
 
     Returns (model in evaluation mode, input size the model was trained on).
     """
     path = models_dir / f"{family}_{input_type}_seed{seed}.pt"
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    if checkpoint.get("input") != input_type or int(checkpoint.get("seed", -1)) != seed:
-        raise ValueError(f"Wrong checkpoint metadata in {path}")
     if family == "cnn":
-        net = build_cnn(input_type, len(CLASS_NAMES))
+        net = SmallCNN(in_channels=3 if input_type == "rgb" else 13, num_classes=len(CLASS_NAMES))
+        net.load_state_dict(checkpoint)
         image_size = 64
     elif family == "resnet":
         net = build_resnet(input_type, pretrained=False, num_classes=len(CLASS_NAMES))
+        net.load_state_dict(checkpoint["state_dict"])
         image_size = int(checkpoint["input_size"])
     else:
         raise ValueError(f"Unsupported model family {family}")
-    net.load_state_dict(checkpoint["state_dict"], strict=True)
     return net.to(device).eval(), image_size
 
 
@@ -107,7 +106,7 @@ def predict_deep(net, image_size, test_rows, cache, band_stats, input_type, prof
     for x, y in loader:
         x = x.to(device=device, dtype=torch.float32)
         if image_size != 64:
-            x = resize_images(x, image_size)
+            x = F.interpolate(x, size=(image_size, image_size), mode="bilinear", align_corners=False)
         all_prob.append(torch.softmax(net(x), dim=1).cpu().numpy())
         all_y.append(y.numpy())
     if not np.array_equal(np.concatenate(all_y), test_rows["label"].to_numpy(dtype=int)):
@@ -128,7 +127,7 @@ def predict_rf(model, test_rows, cache, band_stats, input_type, profile, strengt
         raw = np.asarray(cache[part["cache_row"].to_numpy(dtype=int)], dtype=np.float32)
         hazy = simulate_haze(raw, strength, profile, bright_reference)
         with contextlib.redirect_stdout(io.StringIO()):
-            X_rgb, X_ms, _, _ = extract_rf_features(hazy, band_stats, batch_size=batch_size)
+            X_rgb, X_ms = extract_rf_features(hazy, band_stats, batch_size=batch_size)
         X = X_rgb if input_type == "rgb" else X_ms
         raw_prob = model.predict_proba(X)
         proba = np.zeros((len(part), len(CLASS_NAMES)))

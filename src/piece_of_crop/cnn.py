@@ -1,49 +1,37 @@
-"""Small CNN trained from scratch, for 3 (RGB) or 13 input bands.
+"""The CNN of the course notebook (CNN_Class_Competition_2_Food_Classification_Explained.pdf,
+section 2), with the number of input channels as an argument: 3 for RGB, 13 for all bands.
 
-Used by notebook 04 (training) and notebook 07 (haze test). The two inputs use
-exactly the same network: only the number of input channels changes, so a
-difference between RGB and 13 bands cannot come from the architecture.
+Used by notebook 04 (training) and notebook 07 (haze test). Only the first
+convolution changes between RGB and 13 bands, so a difference in the results
+cannot come from the architecture.
 """
 
 import torch.nn as nn
 
-INPUT_CHANNELS = {"rgb": 3, "13band": 13}
-
 
 class SmallCNN(nn.Module):
-    """Three Conv-BatchNorm-ReLU-MaxPool blocks (32, 64, 128 filters), then
-    global average pooling and one linear layer with 10 outputs.
-
-    A 64 x 64 patch becomes 32 x 32, 16 x 16 and 8 x 8 after the three poolings.
-    The network returns logits; CrossEntropyLoss applies the softmax.
-    """
-
-    def __init__(self, in_channels: int, num_classes: int = 10):
+    def __init__(self, in_channels=3, num_classes=10):
         super().__init__()
-        blocks = []
-        channels = in_channels
-        for out_channels in (32, 64, 128):
-            blocks.extend([
-                nn.Conv2d(channels, out_channels, kernel_size=3, padding=1),
-                nn.BatchNorm2d(out_channels),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(kernel_size=2),
-            ])
-            channels = out_channels
-        self.features = nn.Sequential(*blocks)
-        self.head = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(128, num_classes))
+        # Input: (B, in_channels, 64, 64)
+        self.features = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(num_features=32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+            # Input: (B, 32, 32, 32)
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(num_features=64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+            # Input: (B, 64, 16, 16)
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(num_features=128),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(output_size=(1, 1)),
+        )
+        self.classifier = nn.Linear(in_features=128, out_features=num_classes)
 
     def forward(self, x):
-        return self.head(self.features(x))
-
-
-def build_cnn(input_type: str, num_classes: int = 10) -> SmallCNN:
-    """Return a SmallCNN with 3 input channels for "rgb" or 13 for "13band"."""
-    if input_type not in INPUT_CHANNELS:
-        raise ValueError(f"input_type must be 'rgb' or '13band', not {input_type!r}")
-    return SmallCNN(in_channels=INPUT_CHANNELS[input_type], num_classes=num_classes)
-
-
-def count_parameters(model: nn.Module) -> int:
-    """Number of trainable parameters."""
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        x = self.features(x)  # (B, 128, 1, 1)
+        x = x.flatten(start_dim=1)  # (B, 128)
+        return self.classifier(x)  # (B, 10) logits
