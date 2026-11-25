@@ -12,13 +12,13 @@ import io
 import numpy as np
 import pandas as pd
 import torch
-from torch.nn import functional as F
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import v2
 
 from .cnn import SmallCNN
 from .data import CLASS_NAMES, normalise, select_bands
 from .features import extract_rf_features
-from .resnet import build_resnet
+from .resnet import IMAGE_SIZE, build_resnet
 
 # Band order B01, B02, B03, B04, B05, B06, B07, B08, B09, B10, B11, B12, B8A.
 # Hand-set factors: short (blue) wavelengths get more haze than infrared.
@@ -88,9 +88,10 @@ def load_deep_model(models_dir, family: str, input_type: str, seed: int, device)
         net.load_state_dict(checkpoint)
         image_size = 64
     elif family == "resnet":
-        net = build_resnet(input_type, pretrained=False, num_classes=len(CLASS_NAMES))
-        net.load_state_dict(checkpoint["state_dict"])
-        image_size = int(checkpoint["input_size"])
+        net = build_resnet(in_channels=3 if input_type == "rgb" else 13, num_classes=len(CLASS_NAMES),
+                           pretrained=False)
+        net.load_state_dict(checkpoint)
+        image_size = IMAGE_SIZE
     else:
         raise ValueError(f"Unsupported model family {family}")
     return net.to(device).eval(), image_size
@@ -105,8 +106,8 @@ def predict_deep(net, image_size, test_rows, cache, band_stats, input_type, prof
     all_y, all_prob = [], []
     for x, y in loader:
         x = x.to(device=device, dtype=torch.float32)
-        if image_size != 64:
-            x = F.interpolate(x, size=(image_size, image_size), mode="bilinear", align_corners=False)
+        if image_size != 64:  # the same resize as in make_loaders
+            x = v2.Resize((image_size, image_size), antialias=True)(x)
         all_prob.append(torch.softmax(net(x), dim=1).cpu().numpy())
         all_y.append(y.numpy())
     if not np.array_equal(np.concatenate(all_y), test_rows["label"].to_numpy(dtype=int)):

@@ -23,7 +23,7 @@ from .data import (
 )
 from .features import MS_FEATURES, RGB_FEATURES, extract_rf_features, tune_random_forest
 from .cnn import SmallCNN
-from .resnet import build_resnet, resnet_param_groups
+from .resnet import IMAGE_SIZE, build_resnet, resnet_param_groups
 from .train import predict, predictions_table, seed_all, train_model, train_one_epoch
 from .evaluate import (
     MODEL_FILES,

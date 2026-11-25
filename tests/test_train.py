@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import torch
 
-from piece_of_crop import (SmallCNN, build_resnet, make_loaders, predict, predictions_table, seed_all,
+from piece_of_crop import (RGB_BAND_INDICES, SmallCNN, build_resnet, make_loaders, predict, predictions_table, seed_all,
                            train_model, tune_random_forest)
 
 
@@ -42,14 +42,33 @@ def test_same_seed_gives_same_starting_weights():
     assert all(torch.equal(a[k], b[k]) for k in a)
 
 
-@pytest.mark.parametrize("input_type, channels", [("rgb", 3), ("13band", 13)])
-def test_resnet_shapes_and_trainable_layers(input_type, channels):
-    net = build_resnet(input_type, pretrained=False)
+@pytest.mark.parametrize("channels", [3, 13])
+def test_resnet_gives_10_outputs_and_trains_every_layer(channels):
+    net = build_resnet(in_channels=channels, pretrained=False)
     assert net.conv1.in_channels == channels
     with torch.no_grad():
-        assert net(torch.zeros(2, channels, 128, 128)).shape == (2, 10)
-    trainable = {name.split(".")[0] for name, p in net.named_parameters() if p.requires_grad}
-    assert trainable == {"layer4", "fc"} | ({"conv1"} if input_type == "13band" else set())
+        assert net(torch.zeros(2, channels, 64, 64)).shape == (2, 10)
+    assert all(p.requires_grad for p in net.parameters())  # full fine-tuning
+
+
+def test_13band_resnet_starts_as_the_rgb_resnet():
+    """With zero filters for the extra bands, the 13-band network ignores them at the start."""
+    seed_all(0)
+    rgb = build_resnet(in_channels=3, pretrained=False).eval()
+    seed_all(0)  # same starting weights for the backbone, so conv1 is the only difference
+    ms = build_resnet(in_channels=13, pretrained=False).eval()
+    ms.fc.load_state_dict(rgb.fc.state_dict())
+    with torch.no_grad():
+        x = torch.randn(2, 13, 64, 64)
+        assert torch.allclose(ms(x), rgb(x[:, RGB_BAND_INDICES]), atol=1e-5)
+
+
+def test_resize_in_loaders():
+    split, cache, stats = _toy_inputs()
+    loaders = make_loaders(split, cache, stats, "13band", batch_size=4, image_size=96)
+    for name in ("train", "test"):
+        images, _ = next(iter(loaders[name]))
+        assert images.shape[1:] == (13, 96, 96)
 
 
 def test_training_keeps_the_best_epoch_and_predicts_in_split_order():

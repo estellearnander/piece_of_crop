@@ -371,18 +371,25 @@ class EuroSATDataset(Dataset):
 
 
 def make_loaders(split: pd.DataFrame, cache: np.ndarray, band_stats: pd.DataFrame,
-                 input_type: str, batch_size: int = 128) -> dict:
+                 input_type: str, batch_size: int = 128, image_size: int = None) -> dict:
     """Return DataLoaders for train (flipped at random, shuffled), val and test (fixed order).
 
     Buffer patches are not used. Shuffling and flips use PyTorch's random generator,
     so calling seed_all first makes a run repeatable. num_workers is 0, as in the
     course without a CUDA GPU (lecture_12_finetuning_live_WITH_RESULTS 1.pdf, setup).
+    image_size: if given, every patch is resized to image_size x image_size in the
+    transform, as the course does for pretrained models (same notebook, section 1).
     """
+    train_transform, eval_transform = TRAIN_TRANSFORM, None
+    if image_size is not None:
+        resize = v2.Resize((image_size, image_size), antialias=True)
+        train_transform = v2.Compose([TRAIN_TRANSFORM, resize])
+        eval_transform = resize
     loaders = {}
     for split_name in ["train", "val", "test"]:
         rows = split[split["split"] == split_name]
         is_train = split_name == "train"
         dataset = EuroSATDataset(rows, cache, band_stats, input_type,
-                                 transform=TRAIN_TRANSFORM if is_train else None)
+                                 transform=train_transform if is_train else eval_transform)
         loaders[split_name] = DataLoader(dataset, batch_size=batch_size, shuffle=is_train, num_workers=0)
     return loaders
