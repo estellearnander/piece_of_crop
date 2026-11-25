@@ -87,11 +87,18 @@ def train_model(model, train_loader, val_loader, optimizer, epochs, device, froz
 
 
 @torch.no_grad()
-def predict(model, loader, device):
-    """Return (true labels, class probabilities) for every patch of a loader, in loader order."""
+def predict(model, loader, device, zero_bands=None):
+    """Return (true labels, class probabilities) for every patch of a loader, in loader order.
+
+    zero_bands: optional list of input channels set to 0 before the forward pass. After
+    normalisation 0 is the training mean, so the network gets no information from them.
+    """
     model.eval()
     all_labels, all_probs = [], []
     for images, labels in loader:
+        if zero_bands is not None:
+            images = images.clone()
+            images[:, zero_bands] = 0
         logits = model(images.to(device))
         all_probs.append(torch.softmax(logits, dim=1).cpu().numpy())
         all_labels.append(labels.numpy())

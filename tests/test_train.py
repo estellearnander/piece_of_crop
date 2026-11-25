@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import torch
 
-from piece_of_crop import (RGB_BAND_INDICES, SmallCNN, build_resnet, make_loaders, predict, predictions_table, seed_all,
+from piece_of_crop import (RGB_BAND_INDICES, SmallCNN, build_resnet, first_layer_norms, resnet_param_groups, make_loaders, predict, predictions_table, seed_all,
                            train_model, tune_random_forest)
 
 
@@ -61,6 +61,28 @@ def test_13band_resnet_starts_as_the_rgb_resnet():
     with torch.no_grad():
         x = torch.randn(2, 13, 64, 64)
         assert torch.allclose(ms(x), rgb(x[:, RGB_BAND_INDICES]), atol=1e-5)
+
+
+def test_first_layer_learning_rate_and_norms():
+    net = build_resnet(in_channels=13, pretrained=False)
+    groups = resnet_param_groups(net, 1e-4, 1e-3, lr_first_layer=1e-3)
+    assert [g["lr"] for g in groups] == [1e-3, 1e-4, 1e-3]
+    n_params = sum(p.numel() for g in groups for p in g["params"])
+    assert n_params == sum(p.numel() for p in net.parameters())  # every weight in exactly one group
+    norms = first_layer_norms(net)
+    assert norms.shape == (13,)
+    assert np.all(norms[[b for b in range(13) if b not in RGB_BAND_INDICES]] == 0)
+
+
+def test_predict_can_remove_bands():
+    split, cache, stats = _toy_inputs()
+    loader = make_loaders(split, cache, stats, "13band", batch_size=4)["test"]
+    model = SmallCNN(in_channels=13)
+    with torch.no_grad():
+        model.features[0].weight[:, 5:] = 0  # the network only looks at channels 0 to 4
+    _, full = predict(model, loader, torch.device("cpu"))
+    _, removed = predict(model, loader, torch.device("cpu"), zero_bands=list(range(5, 13)))
+    assert np.allclose(full, removed, atol=1e-6)
 
 
 def test_resize_in_loaders():

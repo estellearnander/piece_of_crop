@@ -29,8 +29,23 @@ def build_resnet(in_channels=3, num_classes=10, pretrained=True):
     return model
 
 
-def resnet_param_groups(model, lr_backbone, lr_head):
-    """Two optimizer groups as in the course: the backbone gets a smaller learning rate than the head."""
-    backbone = [p for n, p in model.named_parameters() if not n.startswith("fc")]
-    return [{"params": backbone, "lr": lr_backbone},
+def resnet_param_groups(model, lr_backbone, lr_head, lr_first_layer=None):
+    """Optimizer groups: the pretrained backbone gets a smaller learning rate than the new head.
+
+    lr_first_layer: optional own learning rate for the first layer (conv1), used in
+    notebook 05 to check whether the extra-band filters need the rate of a new layer.
+    """
+    if lr_first_layer is None:
+        backbone = [p for n, p in model.named_parameters() if not n.startswith("fc")]
+        return [{"params": backbone, "lr": lr_backbone},
+                {"params": model.fc.parameters(), "lr": lr_head}]
+    backbone = [p for n, p in model.named_parameters() if not n.startswith(("fc", "conv1"))]
+    return [{"params": model.conv1.parameters(), "lr": lr_first_layer},
+            {"params": backbone, "lr": lr_backbone},
             {"params": model.fc.parameters(), "lr": lr_head}]
+
+
+def first_layer_norms(model):
+    """Size (L2 norm) of the first-layer filters for each input channel."""
+    weight = model.conv1.weight.detach().cpu()
+    return weight.transpose(0, 1).flatten(1).norm(dim=1).numpy()
