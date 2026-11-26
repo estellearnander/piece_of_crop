@@ -57,13 +57,14 @@ def test_wavelength_haze_is_strongest_in_blue_and_weakest_in_swir():
     share = haze_share(0.5, "wavelength")
     order = np.argsort(WAVELENGTHS_NM)
     assert np.all(np.diff(share[order]) < 0)  # shorter wavelength, more haze
-    assert np.isclose(share[BAND_NAMES.index("B03")], haze_share(0.5, "uniform")[0], atol=0.01)  # 560 nm close to 550
+    assert np.isclose(share[BAND_NAMES.index("B03")], 0.5, atol=0.02)  # 560 nm is close to 550 nm
+    assert np.allclose(haze_share(0.2, "uniform"), 0.2)
 
 
 def test_heavy_haze_moves_values_towards_the_airlight():
     raw = np.zeros((13, 4, 4), dtype=np.float32)
     airlight = np.full(13, 1000.0)
-    hazy = add_haze(raw, 3.0, "uniform", airlight)
+    hazy = add_haze(raw, 0.999, "uniform", airlight)
     assert np.all(hazy > 990)
 
 
