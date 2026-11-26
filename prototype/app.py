@@ -154,13 +154,12 @@ with classification_tab:
         model_name = st.selectbox("Model", list(MODEL_PREFIXES), index=2)
         seed = st.select_slider("Trained seed", options=[0, 1, 2], value=0)
         no_sealake = st.checkbox("Don't allow SeaLake as an answer")
-        st.caption("Why this option: under heavy haze the models tend to answer SeaLake for almost any patch, "
-                   "probably because haze flattens the image and SeaLake is the flattest class. Ticking this "
+        st.caption("Why this option: under heavy haze the ResNets and the RGB random forest and CNN tend to answer "
+                   "SeaLake for almost any patch, probably because haze flattens the image and SeaLake is the "
+                   "flattest class. Ticking this "
                    "removes SeaLake from the possible answers and rescales the other probabilities, so you can "
-                   "see whether the hazy patch still points to the right class. On the whole test set this "
-                   "recovers only part of the accuracy (ResNets at 63% haze: about 1 patch in 4 or 5), so heavy "
-                   "haze removes most of the information (notebook 07, section 8). It is a check only: real "
-                   "regions contain lakes, so a working system must keep SeaLake.")
+                   "see whether the hazy patch still points to the right class. The confidence shown is then "
+                   "rescaled over the remaining classes, so it is higher than the model's original confidence.")
         cpa = checkpoint_path(ROOT, model_name, "rgb", seed)
         cpb = checkpoint_path(ROOT, model_name, "13band", seed)
         st.caption(f"Checkpoints — RGB: {'available' if cpa.is_file() else 'missing'} · 13 bands: {'available' if cpb.is_file() else 'missing'}")
@@ -262,7 +261,7 @@ with comparison_tab:
 
 with insurance_tab:
     st.subheader("Insurance impact · severity-weighted errors")
-    st.info("All values are **illustrative severity points**, not euros, premiums, claim probabilities or validated actuarial costs. Based on the team's pre-defined cost matrix.")
+    st.info("All values are **illustrative severity points**, not euros, premiums, claim probabilities or validated actuarial costs. Based on our pre-defined cost matrix.")
     labels = list(CLASS_NAMES)
     fig = go.Figure(data=go.Heatmap(z=cost_matrix, x=labels, y=labels, colorscale="YlGnBu",
                                     zmin=0, zmax=max(9, float(cost_matrix.max())),
