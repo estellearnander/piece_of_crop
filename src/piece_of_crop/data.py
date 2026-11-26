@@ -347,12 +347,13 @@ class EuroSATDataset(Dataset):
     """
 
     def __init__(self, split_rows: pd.DataFrame, cache: np.ndarray, band_stats: pd.DataFrame,
-                 input_type: str, transform=None):
+                 input_type: str, transform=None, raw_transform=None):
         self.cache_rows = split_rows["cache_row"].to_numpy()
         self.labels = split_rows["label"].to_numpy()
         self.cache = cache
         self.input_type = input_type
         self.transform = transform
+        self.raw_transform = raw_transform  # optional change of the raw bands, e.g. haze (notebook 07)
         self.low = torch.tensor(band_stats["clip_low"].to_numpy(), dtype=torch.float32).view(13, 1, 1)
         self.high = torch.tensor(band_stats["clip_high"].to_numpy(), dtype=torch.float32).view(13, 1, 1)
         self.normalize = v2.Normalize(mean=band_stats["mean"].tolist(), std=band_stats["std"].tolist())
@@ -361,7 +362,10 @@ class EuroSATDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, index: int):
-        image = torch.from_numpy(self.cache[self.cache_rows[index]].astype(np.float32))
+        raw = self.cache[self.cache_rows[index]].astype(np.float32)
+        if self.raw_transform is not None:
+            raw = self.raw_transform(raw)
+        image = torch.from_numpy(np.ascontiguousarray(raw, dtype=np.float32))
         image = torch.clamp(image, self.low, self.high)
         image = self.normalize(image)
         image = select_bands(image, self.input_type)

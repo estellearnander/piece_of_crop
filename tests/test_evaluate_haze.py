@@ -9,7 +9,10 @@ from piece_of_crop import (
     block_bootstrap_ci,
     insurer_cost_matrix,
     listed_critical_confusions,
-    simulate_haze,
+    BAND_NAMES,
+    WAVELENGTHS_NM,
+    add_haze,
+    haze_share,
 )
 
 RESULTS = Path(__file__).resolve().parents[1] / "results"
@@ -47,14 +50,21 @@ def test_earlier_critical_list_is_inside_cost_8_or_more():
 @pytest.mark.parametrize("profile", ["uniform", "wavelength"])
 def test_zero_haze_changes_nothing(profile):
     raw = np.random.default_rng(0).integers(0, 4000, (2, 13, 8, 8)).astype(np.float32)
-    assert np.array_equal(simulate_haze(raw, 0.0, profile, np.full(13, 5000.0)), raw)
+    assert np.array_equal(add_haze(raw, 0.0, profile, np.full(13, 5000.0)), raw)
 
 
-def test_full_uniform_haze_gives_the_bright_reference():
+def test_wavelength_haze_is_strongest_in_blue_and_weakest_in_swir():
+    share = haze_share(0.5, "wavelength")
+    order = np.argsort(WAVELENGTHS_NM)
+    assert np.all(np.diff(share[order]) < 0)  # shorter wavelength, more haze
+    assert np.isclose(share[BAND_NAMES.index("B03")], haze_share(0.5, "uniform")[0], atol=0.01)  # 560 nm close to 550
+
+
+def test_heavy_haze_moves_values_towards_the_airlight():
     raw = np.zeros((13, 4, 4), dtype=np.float32)
-    reference = np.arange(13, dtype=np.float32) * 100
-    hazy = simulate_haze(raw, 1.0, "uniform", reference)
-    assert np.allclose(hazy[:, 0, 0], reference)
+    airlight = np.full(13, 1000.0)
+    hazy = add_haze(raw, 3.0, "uniform", airlight)
+    assert np.all(hazy > 990)
 
 
 def test_block_bootstrap_interval_contains_a_constant_difference():

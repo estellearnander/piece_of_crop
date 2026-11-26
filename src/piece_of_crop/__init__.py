@@ -33,10 +33,10 @@ from .evaluate import (
     load_predictions,
 )
 from .haze import (
-    WAVELENGTH_FACTORS,
-    HazyTestDataset,
-    load_deep_model,
-    predict_deep,
-    predict_rf,
-    simulate_haze,
+    ANGSTROM_EXPONENT,
+    WAVELENGTHS_NM,
+    add_haze,
+    haze_share,
+    hazy_test_loader,
+    rf_hazy_probabilities,
 )

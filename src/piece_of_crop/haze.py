@@ -1,138 +1,66 @@
-"""Synthetic haze on raw bands and prediction of saved models on hazy test
-patches. Used by notebook 07. No model is retrained.
+"""Simulated haze on the raw bands of the test patches (notebook 07). No model is retrained.
 
-The haze is a heuristic stress test, not a physical atmosphere model:
-x_hazy = (1 - a) * x + a * bright_reference, per band, applied to the raw
-values before normalisation.
+Haze model (external: He, Sun and Tang, 2011, equation 1): a hazy value is the clear
+value seen through the haze plus light scattered by the haze itself,
+    hazy = t * clear + (1 - t) * airlight,
+where t is the share of light that passes the haze. Here t = exp(-2 * tau): the light
+crosses the haze twice, from the sun to the ground and from the ground to the satellite,
+and exp(-tau) is the transmission of one vertical pass (Beer-Lambert). tau is the
+aerosol optical depth of a band. With the "wavelength" profile it follows the Angstrom
+law, tau = aod_550 * (wavelength / 550 nm) ** -1.3, so short wavelengths get more haze;
+with the "uniform" profile every band gets the tau of 550 nm.
 """
-
-import contextlib
-import io
 
 import numpy as np
 import pandas as pd
-import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 
-from .cnn import SmallCNN
-from .data import CLASS_NAMES, normalise, select_bands
+from .data import EuroSATDataset
 from .features import extract_rf_features
-from .resnet import IMAGE_SIZE, build_resnet
 
-# Band order B01, B02, B03, B04, B05, B06, B07, B08, B09, B10, B11, B12, B8A.
-# Hand-set factors: short (blue) wavelengths get more haze than infrared.
-WAVELENGTH_FACTORS = np.array([1.25, 1.20, 1.12, 1.00, 0.88, 0.80, 0.75, 0.68, 0.58, 0.58, 0.52, 0.48, 0.70],
-                              dtype=np.float32)
+# Central wavelength of each band in nm, in the band order of the files (B01 ... B12, B8A)
+# (external: USGS EROS Archive, Sentinel-2, table "Spectral Bands and Resolution").
+WAVELENGTHS_NM = np.array([443, 490, 560, 665, 705, 740, 783, 842, 945, 1375, 1610, 2190, 865], dtype=np.float32)
+ANGSTROM_EXPONENT = 1.3  # average for natural atmospheres (external, see notebook 07)
+REFERENCE_NM = 550.0  # aerosol optical depth is reported at 550 nm
 
 
-def simulate_haze(raw, strength: float, profile: str, bright_reference) -> np.ndarray:
-    """Mix raw bands with a bright reference value per band.
+def haze_share(aod: float, profile: str) -> np.ndarray:
+    """Share of each band's value that comes from the haze, (1 - t), for 13 bands."""
+    if profile == "wavelength":
+        tau = aod * (WAVELENGTHS_NM / REFERENCE_NM) ** -ANGSTROM_EXPONENT
+    elif profile == "uniform":
+        tau = np.full(13, aod, dtype=np.float32)
+    else:
+        raise ValueError(f"Unknown haze profile {profile}")
+    return (1 - np.exp(-2 * tau)).astype(np.float32)
 
-    raw: one patch (13, H, W) or a batch (N, 13, H, W) of raw values.
-    strength: haze strength a between 0 (no haze) and 1.
-    profile: "uniform" (same a for all bands) or "wavelength" (a times WAVELENGTH_FACTORS).
-    bright_reference: 13 values, the training 99.9th percentile (clip_high in band_stats.csv).
-    """
+
+def add_haze(raw, aod: float, profile: str, airlight) -> np.ndarray:
+    """Add haze to raw bands of shape (13, H, W) or (N, 13, H, W)."""
     raw = np.asarray(raw, dtype=np.float32)
-    if raw.shape[-3] != 13:
-        raise ValueError("Expected original 13-band EuroSAT patches")
-    if not 0 <= strength <= 1:
-        raise ValueError("Haze strength must lie in [0, 1]")
-    if profile == "uniform":
-        factors = np.ones(13, dtype=np.float32)
-    elif profile == "wavelength":
-        factors = WAVELENGTH_FACTORS
-    else:
-        raise ValueError("Unknown haze profile")
-    alpha = np.clip(strength * factors, 0, 1)
-    leading = (1,) * (raw.ndim - 3)
-    alpha = alpha.reshape(*leading, 13, 1, 1)
-    air = np.asarray(bright_reference, dtype=np.float32).reshape(*leading, 13, 1, 1)
-    return (1 - alpha) * raw + alpha * air
+    share = haze_share(aod, profile).reshape(13, 1, 1)
+    airlight = np.asarray(airlight, dtype=np.float32).reshape(13, 1, 1)
+    return (1 - share) * raw + share * airlight
 
 
-class HazyTestDataset(Dataset):
-    """Test patches with haze added to the raw bands, then normalised like the clean data."""
-
-    def __init__(self, rows: pd.DataFrame, cache, band_stats: pd.DataFrame, input_type: str,
-                 profile: str, strength: float):
-        self.rows = rows
-        self.cache = cache
-        self.band_stats = band_stats
-        self.input_type = input_type
-        self.profile = profile
-        self.strength = strength
-        self.bright_reference = band_stats["clip_high"].to_numpy(dtype=np.float32)
-
-    def __len__(self):
-        return len(self.rows)
-
-    def __getitem__(self, index):
-        row = self.rows.iloc[index]
-        raw = np.asarray(self.cache[int(row["cache_row"])], dtype=np.float32)
-        hazy = simulate_haze(raw, self.strength, self.profile, self.bright_reference)
-        x = select_bands(normalise(hazy, self.band_stats), self.input_type)
-        return torch.from_numpy(np.ascontiguousarray(x)), int(row["label"])
+def hazy_test_loader(test_rows: pd.DataFrame, cache, band_stats: pd.DataFrame, input_type: str,
+                     aod: float, profile: str, airlight, image_size=None, batch_size: int = 32) -> DataLoader:
+    """Test loader that adds haze to the raw bands and then preprocesses them like the clean data."""
+    resize = v2.Resize((image_size, image_size), antialias=True) if image_size is not None else None
+    dataset = EuroSATDataset(test_rows, cache, band_stats, input_type, transform=resize,
+                             raw_transform=lambda raw: add_haze(raw, aod, profile, airlight))
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
-def load_deep_model(models_dir, family: str, input_type: str, seed: int, device):
-    """Load a saved CNN ("cnn") or ResNet ("resnet") for inference.
-
-    Returns (model in evaluation mode, input size the model was trained on).
-    """
-    path = models_dir / f"{family}_{input_type}_seed{seed}.pt"
-    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    if family == "cnn":
-        net = SmallCNN(in_channels=3 if input_type == "rgb" else 13, num_classes=len(CLASS_NAMES))
-        net.load_state_dict(checkpoint)
-        image_size = 64
-    elif family == "resnet":
-        net = build_resnet(in_channels=3 if input_type == "rgb" else 13, num_classes=len(CLASS_NAMES),
-                           pretrained=False)
-        net.load_state_dict(checkpoint)
-        image_size = IMAGE_SIZE
-    else:
-        raise ValueError(f"Unsupported model family {family}")
-    return net.to(device).eval(), image_size
-
-
-@torch.inference_mode()
-def predict_deep(net, image_size, test_rows, cache, band_stats, input_type, profile, strength,
-                 device, batch_size=32) -> np.ndarray:
-    """Class probabilities of a CNN or ResNet on the hazy test patches."""
-    dataset = HazyTestDataset(test_rows, cache, band_stats, input_type, profile, strength)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    all_y, all_prob = [], []
-    for x, y in loader:
-        x = x.to(device=device, dtype=torch.float32)
-        if image_size != 64:  # the same resize as in make_loaders
-            x = v2.Resize((image_size, image_size), antialias=True)(x)
-        all_prob.append(torch.softmax(net(x), dim=1).cpu().numpy())
-        all_y.append(y.numpy())
-    if not np.array_equal(np.concatenate(all_y), test_rows["label"].to_numpy(dtype=int)):
-        raise ValueError("Hazy test patches are not in the order of the test rows.")
-    return np.concatenate(all_prob)
-
-
-def predict_rf(model, test_rows, cache, band_stats, input_type, profile, strength,
-               batch_size=32) -> np.ndarray:
-    """Class probabilities of a random forest on the hazy test patches.
-
-    The features are computed with the same extract_rf_features as in notebook 03.
-    """
-    bright_reference = band_stats["clip_high"].to_numpy(dtype=np.float32)
-    prob_list = []
+def rf_hazy_probabilities(model, test_rows: pd.DataFrame, cache, band_stats: pd.DataFrame, input_type: str,
+                          aod: float, profile: str, airlight, batch_size: int = 500) -> np.ndarray:
+    """Class probabilities of a saved random forest on the hazy test patches."""
+    probabilities = []
     for start in range(0, len(test_rows), batch_size):
-        part = test_rows.iloc[start:start + batch_size]
-        raw = np.asarray(cache[part["cache_row"].to_numpy(dtype=int)], dtype=np.float32)
-        hazy = simulate_haze(raw, strength, profile, bright_reference)
-        with contextlib.redirect_stdout(io.StringIO()):
-            X_rgb, X_ms = extract_rf_features(hazy, band_stats, batch_size=batch_size)
-        X = X_rgb if input_type == "rgb" else X_ms
-        raw_prob = model.predict_proba(X)
-        proba = np.zeros((len(part), len(CLASS_NAMES)))
-        for j, label in enumerate(model.classes_):
-            proba[:, int(label)] = raw_prob[:, j]
-        prob_list.append(proba)
-    return np.vstack(prob_list)
+        rows = test_rows["cache_row"].to_numpy()[start:start + batch_size]
+        hazy = add_haze(cache[rows], aod, profile, airlight)
+        X_rgb, X_ms = extract_rf_features(hazy, band_stats)
+        probabilities.append(model.predict_proba(X_rgb if input_type == "rgb" else X_ms))
+    return np.vstack(probabilities)
