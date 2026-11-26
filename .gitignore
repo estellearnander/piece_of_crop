@@ -1,6 +1,5 @@
-# Data: too large for git, see data/README.md
-data/*
-!data/README.md
+# Data: too large for git, see README.md section 2
+data/
 
 # Model weights stay local
 *.pt
