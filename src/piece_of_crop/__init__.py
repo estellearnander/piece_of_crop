@@ -27,12 +27,10 @@ from .resnet import IMAGE_SIZE, build_resnet, first_layer_norms, resnet_param_gr
 from .train import predict, predictions_table, seed_all, train_model, train_one_epoch
 from .evaluate import (
     MODEL_FILES,
-    cost_scenarios,
-    critical_matrix,
-    is_critical,
+    block_bootstrap_ci,
+    insurer_cost_matrix,
+    listed_critical_confusions,
     load_predictions,
-    make_cost_matrices,
-    paired_block_bootstrap,
 )
 from .haze import (
     WAVELENGTH_FACTORS,
