@@ -15,7 +15,8 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from core import (HAZE_LEVELS, HAZE_PROFILES, MODEL_PREFIXES, PrototypeError, apply_haze,
-                  check_local_resources, checkpoint_path, display_haze_pair, display_rgb, live_predict,
+                  check_local_resources, checkpoint_path, display_haze_pair, display_rgb, exclude_class,
+                  live_predict,
                   read_multispectral_tiff)
 from analytics import (critical_confusions, metrics_table, read_haze_summary, read_test_split,
                        read_verified_predictions, summary_table)
@@ -152,6 +153,14 @@ with classification_tab:
     with right:
         model_name = st.selectbox("Model", list(MODEL_PREFIXES), index=2)
         seed = st.select_slider("Trained seed", options=[0, 1, 2], value=0)
+        no_sealake = st.checkbox("Don't allow SeaLake as an answer")
+        st.caption("Why this option: under heavy haze the models tend to answer SeaLake for almost any patch, "
+                   "probably because haze flattens the image and SeaLake is the flattest class. Ticking this "
+                   "removes SeaLake from the possible answers and rescales the other probabilities, so you can "
+                   "see whether the hazy patch still points to the right class. On the whole test set this "
+                   "recovers only part of the accuracy (ResNets at 63% haze: about 1 patch in 4 or 5), so heavy "
+                   "haze removes most of the information (notebook 07, section 8). It is a check only: real "
+                   "regions contain lakes, so a working system must keep SeaLake.")
         cpa = checkpoint_path(ROOT, model_name, "rgb", seed)
         cpb = checkpoint_path(ROOT, model_name, "13band", seed)
         st.caption(f"Checkpoints — RGB: {'available' if cpa.is_file() else 'missing'} · 13 bands: {'available' if cpb.is_file() else 'missing'}")
@@ -200,6 +209,9 @@ with classification_tab:
                             st.info("Not available")
                             continue
                         proba, provenance = outputs[input_type]
+                        if no_sealake:
+                            proba = exclude_class(proba, CLASS_NAMES.index("SeaLake"))
+                            provenance += " · SeaLake not allowed"
                         pred_id = int(proba.argmax())
                         st.metric("Predicted land-cover", CLASS_NAMES[pred_id])
                         st.metric("Model confidence", f"{proba[pred_id]:.1%}")

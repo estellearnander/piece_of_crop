@@ -10,7 +10,7 @@ import torch
 from rasterio.io import MemoryFile
 from sklearn.dummy import DummyClassifier
 
-from core import PrototypeError, apply_haze, display_haze_pair, checkpoint_path, live_predict, read_multispectral_tiff
+from core import PrototypeError, apply_haze, display_haze_pair, exclude_class, checkpoint_path, live_predict, read_multispectral_tiff
 from piece_of_crop import BAND_NAMES, SmallCNN, build_resnet
 
 
@@ -107,3 +107,10 @@ def test_haze_preview_gets_brighter_and_flatter(tmp_path):
     clear, hazy = display_haze_pair(tmp_path, raw, apply_haze(tmp_path, raw, 0.4, "uniform"))
     assert clear.shape == hazy.shape == (64, 64, 3)
     assert hazy.mean() > clear.mean() and hazy.std() < clear.std()
+
+
+def test_exclude_class_picks_the_best_other_class():
+    probs = np.array([0.1, 0.2, 0, 0, 0, 0, 0, 0, 0, 0.7])
+    out = exclude_class(probs, 9)
+    assert out[9] == 0 and np.isclose(out.sum(), 1) and out.argmax() == 1
+    assert np.isclose(out[1] / out[0], 2)

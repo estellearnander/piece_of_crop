@@ -105,6 +105,19 @@ def apply_haze(root: Path, raw: np.ndarray, strength: float, profile: str) -> np
     return add_haze(raw, strength, profile, stats["clip_high"].to_numpy()).astype(np.float32)
 
 
+def exclude_class(probs: np.ndarray, class_id: int) -> np.ndarray:
+    """Set one class's probability to zero and rescale the rest to sum to 1.
+
+    Used to forbid SeaLake as an answer: the prediction becomes the model's best other class.
+    """
+    probs = np.asarray(probs, dtype=float).copy()
+    probs[class_id] = 0.0
+    total = probs.sum()
+    if total <= 0:
+        raise PrototypeError("The model gave all its probability to the excluded class.")
+    return probs / total
+
+
 def checkpoint_path(root: Path, model_name: str, input_type: str, seed: int) -> Path:
     if model_name not in MODEL_PREFIXES or input_type not in ("rgb", "13band"):
         raise PrototypeError("Unrecognised model or input type.")
