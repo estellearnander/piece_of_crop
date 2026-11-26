@@ -62,6 +62,8 @@ The first notebook that needs the patches builds `data/eurosat_cache.npy` (about
 
 Every model is trained with three seeds (0, 1 and 2) and results are reported as the mean.
 
+Notebook 01 reads all 27,000 GeoTIFFs once and saves their facts (readability, pixel fingerprint, location and band statistics) to `results/file_summary.csv`, which notebook 02 reads. This file is not in Git (17 MB, rebuilt by notebook 01 in a few minutes), so run notebook 01 before notebook 02.
+
 `results/split.csv` and `results/band_stats.csv` are fixed files. Do not delete or regenerate them: every model is trained and tested on them, and a different scikit-learn version can produce a different split.
 
 Model weights (`models/`), the raw data and the cache are not in Git because of their size. The training notebooks (03 to 05) recreate the weights; notebook 05 downloads the ImageNet weights for ResNet18 from torchvision the first time it runs. All notebooks in the repository are saved with their outputs, so the results can be checked without running them.
