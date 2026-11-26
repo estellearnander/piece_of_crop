@@ -1,10 +1,11 @@
 # Piece of Crop — Streamlit prototype
 
-A small academic prototype using the team's existing **EuroSAT 13-band** dataset, **Random Forest**, **SmallCNN** and **ResNet18** experiments. It demonstrates three workflows:
+A small academic prototype using the team's existing **EuroSAT 13-band** dataset, **Random Forest**, **SmallCNN** and **ResNet18** experiments. It demonstrates four workflows:
 
 1. **Satellite Classification:** live inference for RGB **and** 13 bands on the *same* full multispectral patch, or an explicitly labelled *saved test prediction* if model files are unavailable.
 2. **Model Comparison:** accuracy, macro-F1 and mean insurer severity computed from saved test predictions across up to 3 seeds. Only prediction files that match the *current* `results/split.csv` are included.
 3. **Insurance Impact:** cost matrix, rank of cost-weighted model errors and most consequential misclassifications. The numbers are **illustrative severity points, not euros or actual claims**.
+4. **Haze Robustness:** the notebook 07 test-set results (accuracy and critical-error rate against simulated haze, RGB vs 13 bands). The Satellite Classification tab can also add the same simulated haze to a patch before live inference, so one patch can be followed as the haze grows. Haze needs live inference, because the saved predictions are of clear images.
 
 ## Repository layout
 

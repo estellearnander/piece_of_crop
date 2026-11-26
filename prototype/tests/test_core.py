@@ -10,7 +10,7 @@ import torch
 from rasterio.io import MemoryFile
 from sklearn.dummy import DummyClassifier
 
-from core import PrototypeError, checkpoint_path, live_predict, read_multispectral_tiff
+from core import PrototypeError, apply_haze, checkpoint_path, live_predict, read_multispectral_tiff
 from piece_of_crop import BAND_NAMES, SmallCNN, build_resnet
 
 
@@ -90,3 +90,12 @@ def test_missing_checkpoint_is_not_faked(tmp_path):
     create_stats(tmp_path)
     with pytest.raises(PrototypeError, match="missing"):
         live_predict(tmp_path, np.zeros((13,64,64),dtype="float32"), "ResNet18", "13band", 0)
+
+
+def test_apply_haze_none_is_unchanged_and_haze_moves_towards_airlight(tmp_path):
+    create_stats(tmp_path)
+    raw = np.full((13, 64, 64), 500, dtype=np.float32)
+    assert apply_haze(tmp_path, raw, 0.0, "wavelength") is raw
+    hazy = apply_haze(tmp_path, raw, 0.2, "uniform")
+    assert hazy.shape == raw.shape
+    assert np.allclose(hazy, 0.8 * 500 + 0.2 * 2000)

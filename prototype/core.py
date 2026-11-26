@@ -14,6 +14,9 @@ import pandas as pd
 
 MODEL_PREFIXES = {"Random Forest": "rf", "Small CNN": "cnn", "ResNet18": "resnet"}
 INPUT_CHOICES = {"RGB": "rgb", "13 bands": "13band"}
+# Haze levels and profiles tested in notebook 07 (share of the signal from haze at 550 nm).
+HAZE_LEVELS = [0.0, 0.01, 0.02, 0.05, 0.10, 0.20, 0.40, 0.63]
+HAZE_PROFILES = {"Wavelength (Ångström)": "wavelength", "Uniform (control)": "uniform"}
 
 
 class PrototypeError(RuntimeError):
@@ -69,6 +72,18 @@ def read_training_stats(root: Path) -> pd.DataFrame:
     if (table["std"] <= 0).any() or (table["clip_low"] >= table["clip_high"]).any():
         raise PrototypeError("Invalid band_stats.csv normalisation values.")
     return table
+
+
+def apply_haze(root: Path, raw: np.ndarray, strength: float, profile: str) -> np.ndarray:
+    """Add the notebook 07 haze to raw 13-band values; strength 0 returns the patch unchanged.
+
+    The airlight is each band's upper clip limit from the training statistics, as in notebook 07.
+    """
+    if strength == 0:
+        return raw
+    from piece_of_crop.haze import add_haze
+    stats = read_training_stats(root)
+    return add_haze(raw, strength, profile, stats["clip_high"].to_numpy()).astype(np.float32)
 
 
 def checkpoint_path(root: Path, model_name: str, input_type: str, seed: int) -> Path:

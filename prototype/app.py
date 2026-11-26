@@ -14,9 +14,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from core import (MODEL_PREFIXES, PrototypeError, check_local_resources, checkpoint_path,
-                  display_rgb, live_predict, read_multispectral_tiff)
-from analytics import (critical_confusions, metrics_table, read_test_split,
+from core import (HAZE_LEVELS, HAZE_PROFILES, MODEL_PREFIXES, PrototypeError, apply_haze,
+                  check_local_resources, checkpoint_path, display_rgb, live_predict,
+                  read_multispectral_tiff)
+from analytics import (critical_confusions, metrics_table, read_haze_summary, read_test_split,
                        read_verified_predictions, summary_table)
 from piece_of_crop import CLASS_NAMES, insurer_cost_matrix
 
@@ -85,8 +86,8 @@ with st.sidebar:
     st.caption("Local app. No imagery or predictions are uploaded to a server by this code.")
     st.caption("Academic decision-support demonstration — not an insurance underwriting system.")
 
-classification_tab, comparison_tab, insurance_tab = st.tabs(
-    ["🛰️ Satellite Classification", "📊 Model Comparison", "🧮 Insurance Impact"]
+classification_tab, comparison_tab, insurance_tab, haze_tab = st.tabs(
+    ["🛰️ Satellite Classification", "📊 Model Comparison", "🧮 Insurance Impact", "🌫️ Haze Robustness"]
 )
 
 with classification_tab:
@@ -126,8 +127,19 @@ with classification_tab:
                         st.success("13-band GeoTIFF validated. Ground-truth class is unknown for uploads.")
                     except PrototypeError as e:
                         st.error(str(e))
+        haze_strength = st.select_slider("Simulated haze (share of the signal at 550 nm)", options=HAZE_LEVELS,
+                                         value=0.0, format_func=lambda v: "none" if v == 0 else f"{v:.0%}")
+        haze_profile = HAZE_PROFILES[st.radio("Haze profile", list(HAZE_PROFILES), horizontal=True,
+                                              disabled=haze_strength == 0)]
+        if raw is not None and haze_strength > 0:
+            try:
+                raw = apply_haze(ROOT, raw, haze_strength, haze_profile)
+            except PrototypeError as e:
+                st.error(str(e))
+                raw = None
         if raw is not None:
-            st.image(display_rgb(raw), caption="B04 / B03 / B02 · percentile stretch for visualization only", use_container_width=True)
+            haze_note = "" if haze_strength == 0 else f" · with simulated haze ({haze_strength:.0%} at 550 nm)"
+            st.image(display_rgb(raw), caption="B04 / B03 / B02 · percentile stretch for visualization only" + haze_note, use_container_width=True)
         elif source == "Test patch from EuroSAT" and chosen_file:
             st.caption("Image preview requires the raw GeoTIFF dataset.")
 
@@ -156,6 +168,9 @@ with classification_tab:
                         continue
                     except PrototypeError as e:
                         errors.append(f"{input_type}: {e}")
+                if haze_strength > 0:
+                    errors.append(f"{input_type}: haze needs live inference (saved predictions are of clear images).")
+                    continue
                 if chosen_file is not None and actual_label is not None and key in saved_runs:
                     df = saved_runs[key]
                     matches = df[df["file"].eq(chosen_file)]
@@ -182,7 +197,7 @@ with classification_tab:
                         pred_id = int(proba.argmax())
                         st.metric("Predicted land-cover", CLASS_NAMES[pred_id])
                         st.metric("Model confidence", f"{proba[pred_id]:.1%}")
-                        st.caption(provenance)
+                        st.caption(provenance + ("" if haze_strength == 0 else f" · haze {haze_strength:.0%} ({haze_profile})"))
                         if actual_label is not None:
                             severity = cost_matrix[actual_label, pred_id]
                             st.caption(f"{'✓ Correct class' if actual_label==pred_id else '✕ Incorrect class'} · Assumed severity: {severity:g} points")
@@ -266,6 +281,39 @@ with insurance_tab:
             st.warning("This verified run is missing. Choose another combination or regenerate saved predictions.")
     else:
         st.warning("Saved test prediction files are needed to rank real model errors; the severity matrix is still available.")
+
+with haze_tab:
+    st.subheader("Robustness to haze · full held-out test set")
+    st.caption("Results of notebook 07: the same haze is added to the test patches given to the RGB and the 13-band model. Mean over the available seeds.")
+    profile_label = st.radio("Haze profile", list(HAZE_PROFILES), horizontal=True, key="haze_tab_profile")
+    haze = read_haze_summary(ROOT, HAZE_PROFILES[profile_label])
+    if haze.empty:
+        st.warning("Missing results/haze_runs.csv. Run notebook 07 and refresh the app.")
+    else:
+        measure_label = st.selectbox("Measure", ["Accuracy", "Critical-error rate (lower is better)"], key="haze_measure")
+        measure = {"Accuracy": "accuracy", "Critical-error rate (lower is better)": "critical_error_rate"}[measure_label]
+        # Haze levels are unevenly spaced, so they are drawn at equal distances.
+        position = {level: i for i, level in enumerate(HAZE_LEVELS)}
+        haze["position"] = haze["haze_550"].map(position)
+        fig = px.line(haze.sort_values("position"), x="position", y=measure, color="input", facet_col="model",
+                      markers=True, category_orders={"model": list(MODEL_PREFIXES), "input": ["RGB", "13 bands"]},
+                      labels={"position": "Haze at 550 nm", "input": "Input", measure: measure_label})
+        fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+        fig.update_xaxes(tickvals=list(position.values()),
+                         ticktext=["none" if v == 0 else f"{v:.0%}" for v in HAZE_LEVELS])
+        fig.update_yaxes(range=[0, 1], tickformat=".0%")
+        fig.add_vrect(x0=position[0.40] - 0.5, x1=position[0.63] + 0.5, fillcolor="grey", opacity=0.15,
+                      line_width=0, annotation_text="models failed", annotation_position="top left")
+        fig.update_layout(height=450, margin=dict(l=0, r=0, t=45, b=0))
+        st.plotly_chart(fig, use_container_width=True)
+        table = haze.pivot_table(index=["model", "haze_550"], columns="input", values=measure).reset_index()
+        table["13 bands − RGB"] = table["13 bands"] - table["RGB"]
+        table["haze_550"] = table["haze_550"].map(lambda v: "none" if v == 0 else f"{v:.0%}")
+        st.dataframe(table.rename(columns={"model": "Model", "haze_550": "Haze at 550 nm"}), hide_index=True,
+                     use_container_width=True,
+                     column_config={c: st.column_config.NumberColumn(format="%.3f")
+                                    for c in ["RGB", "13 bands", "13 bands − RGB"]})
+        st.caption("Haze is simulated, not real cloudy imagery. From 40% at 550 nm the models fail (notebook 07), so differences there say little.")
 
 st.divider()
 st.caption("Piece of Crop · EuroSAT multispectral imagery · Research / classroom prototype · Models should be independently validated before any real-world deployment.")

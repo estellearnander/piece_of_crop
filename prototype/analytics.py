@@ -100,3 +100,24 @@ def critical_confusions(table: pd.DataFrame, costs: np.ndarray, class_names: lis
                                  "Count": count, "Severity points": float(costs[i, j]),
                                  "Total severity": float(costs[i, j] * count)})
     return pd.DataFrame(rows).sort_values("Total severity", ascending=False) if rows else pd.DataFrame()
+
+
+HAZE_MODEL_NAMES = {"RandomForest": "Random Forest", "SmallCNN": "Small CNN", "ResNet18": "ResNet18"}
+
+
+def read_haze_summary(root: Path, profile: str) -> pd.DataFrame:
+    """Mean over seeds of the notebook 07 test-set results for one haze profile.
+
+    The clear images (profile "none", strength 0) are the starting point of every curve.
+    """
+    path = root / "results" / "haze_runs.csv"
+    if not path.is_file():
+        return pd.DataFrame()
+    runs = pd.read_csv(path)
+    runs = runs[runs["profile"].isin(["none", profile])]
+    out = (runs.groupby(["model", "input", "haze_550"], as_index=False)
+           .agg(accuracy=("accuracy", "mean"), critical_error_rate=("critical_error_rate", "mean"),
+                seeds=("seed", "nunique")))
+    out["model"] = out["model"].map(HAZE_MODEL_NAMES)
+    out["input"] = out["input"].map({"rgb": "RGB", "13band": "13 bands"})
+    return out
