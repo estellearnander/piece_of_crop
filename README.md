@@ -12,41 +12,93 @@ We compare a random forest, a small CNN and a pretrained ResNet18, each trained 
 **Team:** Estelle Arnander, Manvi Gupta, Rishi Gupta, Loraine Nieto, Faris Selimovic, Aoi Ueno.
 Course: AI, Machine Learning & Analytics, IE University, fall 2026 (Prof. P. Delgado-Santos).
 
-## 1. Setup
+## Contents
 
-Run these from the project root (the folder that contains `pyproject.toml`):
+1. [Data](#1-data)
+2. [Setup](#2-setup)
+3. [Prototype](#3-prototype)
+4. [How to reproduce the results](#4-how-to-reproduce-the-results)
+5. [Project structure](#5-project-structure)
+6. [Results](#6-results)
+7. [Limitations](#7-limitations)
+8. [AI-use declaration](#8-ai-use-declaration)
+9. [References](#9-references)
+
+## 1. Data
+
+We use the multispectral version of EuroSAT (Helber et al., 2019): 27,000 Sentinel-2 patches of 64 x 64 pixels with 13 bands, in 10 land-cover classes (AnnualCrop, Forest, HerbaceousVegetation, Highway, Industrial, Pasture, PermanentCrop, Residential, River, SeaLake).
+
+- **Source:** https://github.com/phelber/EuroSAT (downloads on Zenodo, https://zenodo.org/records/7711810).
+- **Licence and permitted use:** MIT licence, plus the Copernicus Sentinel data terms. The data is public, contains no personal information and may be used for research and teaching.
+- **Not in this repository:** the data is about 2 GB, so it is downloaded during the setup (section 2, step 2).
+- **RGB and 13 bands from the same images:** we use only the multispectral files and build the RGB input from bands 4, 3 and 2, so both inputs show exactly the same patches. The separate EuroSAT RGB download is not needed.
+
+## 2. Setup
+
+Run all commands from the project root (the folder that contains `pyproject.toml`).
+
+**Step 1. Create the environment and install the package.**
 
 ```bash
 conda env create -f environment.yml
 conda activate piece-of-crop
 python -m pip install -e .
 python -c "import piece_of_crop; print('Package works')"
+```
+
+If the environment already exists, only run `conda activate piece-of-crop`.
+
+**Step 2. Download the data.**
+
+```bash
+mkdir -p data
+cd data
+# download EuroSAT_MS.zip (2.1 GB) from https://zenodo.org/records/7711810 into this folder, then:
+md5 EuroSAT_MS.zip        # must print 091174add3c8e680a49244acf185b9f0 (the checksum on Zenodo)
+unzip -q EuroSAT_MS.zip
+cd ..
+```
+
+On Linux, use `md5sum` instead of `md5`. You should now have `data/EuroSAT_MS/` with 10 class folders and 27,000 `.tif` files of 13 x 64 x 64 values (uint16).
+
+**Step 3. Run the tests.**
+
+```bash
 pytest -q
 ```
 
-If the environment already exists, only run `conda activate piece-of-crop`. `pytest -q` runs the tests in `tests/`, which check the data split, training helpers, cost matrix and haze functions.
+The tests in `tests/` check the data split, training helpers, cost matrix and haze functions.
 
-## 2. Data
+## 3. Prototype
 
-We use the multispectral version of EuroSAT (Helber et al., 2019): 27,000 Sentinel-2 patches of 64 x 64 pixels with 13 bands, in 10 land-cover classes.
+`prototype/` contains a local Streamlit app that shows the project to a user.
 
-- **Source:** https://github.com/phelber/EuroSAT (downloads on Zenodo, https://zenodo.org/records/7711810).
-- **Licence and permitted use:** MIT licence, plus the Copernicus Sentinel data terms. The data is public, contains no personal information and may be used for research and teaching.
-- The data is not stored in this repository (about 2 GB).
+**Install and run** (after the setup in section 2):
 
-**How to download.**
+```bash
+conda activate piece-of-crop
+python -m pip install -r prototype/requirements.txt
+python -m pytest -q prototype/tests
+python prototype/preflight.py
+python -m streamlit run prototype/app.py
+```
 
-1. Download `EuroSAT_MS.zip` (2.1 GB) from https://zenodo.org/records/7711810 into the `data/` folder (create it with `mkdir data` if it does not exist). Do not download `EuroSAT_RGB.zip`: we build the RGB input from bands 4, 3 and 2 of the 13-band files, so RGB and 13 bands come from exactly the same images.
-2. Check that the download is complete: `md5 EuroSAT_MS.zip` must give `091174add3c8e680a49244acf185b9f0` (the checksum listed on Zenodo).
-3. Unzip it in `data/`: `unzip -q EuroSAT_MS.zip`.
+`preflight.py` checks, without changing anything, that the split, band statistics, data, saved predictions and model weights are in place. Streamlit then opens the app in the browser, normally at http://localhost:8501. Stop it with Ctrl+C in the terminal.
 
-You should now have `data/EuroSAT_MS/` with 10 class folders (AnnualCrop, Forest, HerbaceousVegetation, Highway, Industrial, Pasture, PermanentCrop, Residential, River, SeaLake) and 27,000 `.tif` files of 13 x 64 x 64 values (uint16).
+**What it does.** The app has four tabs:
 
-The first notebook that needs the patches builds `data/eurosat_cache.npy` (about 2.9 GB, not in Git) from the GeoTIFFs. This happens once; later notebooks only load it.
+1. **Satellite Classification.** Choose a test patch (or upload a 13-band 64 x 64 EuroSAT GeoTIFF), a model and a seed, and compare the RGB and 13-band predictions on the same patch, with the class probabilities and the cost of the mistake. Simulated haze can be added (the same haze as notebook 07), and SeaLake can be forbidden as an answer to see whether a hazy patch still points to the right class.
+2. **Model Comparison.** Accuracy, macro-F1 and mean insurer cost of all models, from the saved test predictions.
+3. **Insurance Impact.** The cost matrix and the costliest confusions of each model.
+4. **Haze Robustness.** The notebook 07 results: accuracy and critical-error rate against haze strength, RGB against 13 bands.
 
-## 3. How to reproduce the results
+**What needs what.** Live predictions need the model weights in `models/` and the EuroSAT GeoTIFFs in `data/`. The weights are not in Git; notebooks 03 to 05 create them (section 4). Without the weights, the Model Comparison, Insurance Impact and Haze Robustness tabs still work from the saved results, and the Satellite Classification tab shows the saved test prediction for a chosen patch, labelled as not live. Haze needs live predictions, because the saved predictions are of clear images.
 
-1. Follow the setup above and download the data.
+The app runs locally and uploads nothing. It is an academic demonstration, not a validated insurance underwriting system.
+
+## 4. How to reproduce the results
+
+1. Complete the setup in section 2.
 2. Open the project in Jupyter or PyCharm and select the `piece-of-crop` environment as the notebook kernel.
 3. Run the notebooks in order, each with a restarted kernel (Restart and Run All):
 
@@ -62,13 +114,17 @@ The first notebook that needs the patches builds `data/eurosat_cache.npy` (about
 
 Every model is trained with three seeds (0, 1 and 2) and results are reported as the mean.
 
-Notebook 01 reads all 27,000 GeoTIFFs once and saves their facts (readability, pixel fingerprint, location and band statistics) to `results/file_summary.csv`, which notebook 02 reads. This file is not in Git (17 MB, rebuilt by notebook 01 in a few minutes), so run notebook 01 before notebook 02.
+**Files created along the way:**
+
+- Notebook 01 reads all 27,000 GeoTIFFs once and saves their facts (readability, pixel fingerprint, location and band statistics) to `results/file_summary.csv`, which notebook 02 reads. This file is not in Git (17 MB, rebuilt by notebook 01 in a few minutes), so run notebook 01 before notebook 02.
+- The first notebook that needs the patches builds `data/eurosat_cache.npy` (about 2.9 GB, not in Git) from the GeoTIFFs. This happens once; later notebooks only load it.
+- Notebooks 03 to 05 save the trained weights in `models/` (not in Git because of their size). Notebook 05 downloads the ImageNet weights for ResNet18 from torchvision the first time it runs.
 
 `results/split.csv` and `results/band_stats.csv` are fixed files. Do not delete or regenerate them: every model is trained and tested on them, and a different scikit-learn version can produce a different split.
 
-Model weights (`models/`), the raw data and the cache are not in Git because of their size. The training notebooks (03 to 05) recreate the weights; notebook 05 downloads the ImageNet weights for ResNet18 from torchvision the first time it runs. All notebooks in the repository are saved with their outputs, so the results can be checked without running them.
+All notebooks in the repository are saved with their outputs, so the results can be checked without running them.
 
-## 4. Project structure
+## 5. Project structure
 
 ```
 piece_of_crop/
@@ -89,34 +145,10 @@ piece_of_crop/
 │   ├── predictions/         test predictions, one CSV per model, input and seed (<model>_<input>_seed<n>.csv)
 │   ├── figures/             saved figures
 │   └── *.csv                split, band statistics and result tables
-├── prototype/               Streamlit app (section 5)
+├── prototype/               Streamlit app (section 3)
 ├── tests/                   pytest tests for the package
 └── models/                  trained weights (local only)
 ```
-
-## 5. Prototype
-
-`prototype/` contains a local Streamlit app that shows the project to a user. It has four tabs:
-
-1. **Satellite Classification.** Choose a test patch (or upload a 13-band 64 x 64 EuroSAT GeoTIFF), a model and a seed, and compare the RGB and 13-band predictions on the same patch, with the class probabilities and the cost of the mistake. Simulated haze can be added (the same haze as notebook 07), and SeaLake can be forbidden as an answer to see whether a hazy patch still points to the right class.
-2. **Model Comparison.** Accuracy, macro-F1 and mean insurer cost of all models, from the saved test predictions.
-3. **Insurance Impact.** The cost matrix and the costliest confusions of each model.
-4. **Haze Robustness.** The notebook 07 results: accuracy and critical-error rate against haze strength, RGB against 13 bands.
-
-**Install and run** (from the project root, after the setup in section 1):
-
-```bash
-conda activate piece-of-crop
-python -m pip install -r prototype/requirements.txt
-python prototype/preflight.py
-python -m streamlit run prototype/app.py
-```
-
-`preflight.py` checks, without changing anything, that the split, band statistics, data, saved predictions and model weights are in place. Streamlit then opens the app in the browser, normally at http://localhost:8501. Stop it with Ctrl+C in the terminal. The prototype tests run with `python -m pytest -q prototype/tests`.
-
-**What needs what.** Live predictions need the model weights in `models/` and the EuroSAT GeoTIFFs in `data/`, which are not in Git; run notebooks 03 to 05 to create the weights. Without them, the Model Comparison, Insurance Impact and Haze Robustness tabs still work from the saved results, and the Satellite Classification tab shows the saved test prediction for a chosen patch, labelled as not live. Haze needs live predictions, because the saved predictions are of clear images.
-
-The app runs locally and uploads nothing. It is an academic demonstration, not a validated insurance underwriting system.
 
 ## 6. Results
 
@@ -148,7 +180,7 @@ Test set of 3,854 patches in 134 spatial blocks, mean of three seeds. A critical
 
 *[Placeholder: to be completed by the team, consistent with section 10 of the report.]*
 
-## References
+## 9. References
 
 The full reference list is in the report, and each notebook ends with the references it uses. Main external sources:
 
