@@ -132,7 +132,14 @@ piece_of_crop/
 ├── environment.yml          conda environment
 ├── pyproject.toml           package definition (pip install -e .)
 ├── data/                    EuroSAT_MS (local only, see section 2)
-├── notebooks/               01 to 07, run in order
+├── notebooks/
+│   ├── 01_data_exploration.ipynb              
+│   ├── 02_split_and_preprocessing.ipynb          
+│   ├── 03_rf_baseline.ipynb               
+│   ├── 04_cnn.ipynb           
+│   ├── 05_transfer_resnet.ipynb           
+│   ├── 06_evaluation.ipynb        
+│   └── 07_haze.ipynb              
 ├── src/piece_of_crop/
 │   ├── data.py              file checks, spatial split, normalisation, cache, Dataset and DataLoaders
 │   ├── features.py          random forest features
