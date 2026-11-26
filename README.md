@@ -103,3 +103,23 @@ validated for real-world insurance decision-making.
 Saved CSV files and figures reflect the executed experiments.
 Raw imagery, image caches and model weights are deliberately
 excluded from Git because of their size.
+
+## Interactive Streamlit prototype
+
+The project includes an interactive prototype for satellite land-cover classification, model comparison, and insurance-related error analysis.
+
+See [Prototype setup and usage](prototype/README.md) for installation, requirements, and usage instructions.
+
+To run locally from the project root:
+
+```bash
+conda activate piece-of-crop
+python -m pip install -e .
+python -m pip install -r prototype/requirements.txt
+python prototype/preflight.py
+python -m streamlit run prototype/app.py
+```
+
+Live classification requires the corresponding trained model checkpoints and EuroSAT multispectral images, which are not included in GitHub.
+
+The application is an academic demonstration, not a validated insurance underwriting system.
