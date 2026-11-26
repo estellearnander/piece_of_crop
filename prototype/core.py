@@ -57,6 +57,25 @@ def display_rgb(raw: np.ndarray) -> np.ndarray:
     return np.clip(to_rgb_image(raw), 0, 1)
 
 
+def display_haze_pair(root: Path, clear: np.ndarray, hazy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """B04/B03/B02 images of a clear and a hazy patch on one shared scale, for display only.
+
+    The usual per-image percentile stretch would undo simulated haze, because haze only
+    scales and shifts every band. Here both images run from the clear patch's 2nd
+    percentile up to the haze brightness (the airlight), with a square-root gamma so the
+    clear patch is not too dark. The models never see these images.
+    """
+    from piece_of_crop.data import RGB_BAND_INDICES
+    airlight = read_training_stats(root)["clip_high"].to_numpy(dtype=np.float32)[RGB_BAND_INDICES][:, None, None]
+    low = np.percentile(clear[RGB_BAND_INDICES], 2, axis=(1, 2))[:, None, None]
+
+    def scale(raw):
+        image = np.clip((raw[RGB_BAND_INDICES] - low) / (airlight - low), 0, 1) ** 0.5
+        return image.transpose(1, 2, 0)
+
+    return scale(clear), scale(hazy)
+
+
 def read_training_stats(root: Path) -> pd.DataFrame:
     from piece_of_crop.data import BAND_NAMES
 

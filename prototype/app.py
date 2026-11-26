@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from core import (HAZE_LEVELS, HAZE_PROFILES, MODEL_PREFIXES, PrototypeError, apply_haze,
-                  check_local_resources, checkpoint_path, display_rgb, live_predict,
+                  check_local_resources, checkpoint_path, display_haze_pair, display_rgb, live_predict,
                   read_multispectral_tiff)
 from analytics import (critical_confusions, metrics_table, read_haze_summary, read_test_split,
                        read_verified_predictions, summary_table)
@@ -131,15 +131,21 @@ with classification_tab:
                                          value=0.0, format_func=lambda v: "none" if v == 0 else f"{v:.0%}")
         haze_profile = HAZE_PROFILES[st.radio("Haze profile", list(HAZE_PROFILES), horizontal=True,
                                               disabled=haze_strength == 0)]
+        clear_raw = raw
         if raw is not None and haze_strength > 0:
             try:
                 raw = apply_haze(ROOT, raw, haze_strength, haze_profile)
             except PrototypeError as e:
                 st.error(str(e))
                 raw = None
-        if raw is not None:
-            haze_note = "" if haze_strength == 0 else f" · with simulated haze ({haze_strength:.0%} at 550 nm)"
-            st.image(display_rgb(raw), caption="B04 / B03 / B02 · percentile stretch for visualization only" + haze_note, use_container_width=True)
+        if raw is not None and haze_strength == 0:
+            st.image(display_rgb(raw), caption="B04 / B03 / B02 · percentile stretch for visualization only", use_container_width=True)
+        elif raw is not None:
+            clear_image, hazy_image = display_haze_pair(ROOT, clear_raw, raw)
+            clear_col, hazy_col = st.columns(2)
+            clear_col.image(clear_image, caption="Clear", use_container_width=True)
+            hazy_col.image(hazy_image, caption=f"Simulated haze · {haze_strength:.0%} at 550 nm", use_container_width=True)
+            st.caption("B04 / B03 / B02 · both on one scale up to the haze brightness, so the haze stays visible")
         elif source == "Test patch from EuroSAT" and chosen_file:
             st.caption("Image preview requires the raw GeoTIFF dataset.")
 

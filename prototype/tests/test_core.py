@@ -10,7 +10,7 @@ import torch
 from rasterio.io import MemoryFile
 from sklearn.dummy import DummyClassifier
 
-from core import PrototypeError, apply_haze, checkpoint_path, live_predict, read_multispectral_tiff
+from core import PrototypeError, apply_haze, display_haze_pair, checkpoint_path, live_predict, read_multispectral_tiff
 from piece_of_crop import BAND_NAMES, SmallCNN, build_resnet
 
 
@@ -99,3 +99,11 @@ def test_apply_haze_none_is_unchanged_and_haze_moves_towards_airlight(tmp_path):
     hazy = apply_haze(tmp_path, raw, 0.2, "uniform")
     assert hazy.shape == raw.shape
     assert np.allclose(hazy, 0.8 * 500 + 0.2 * 2000)
+
+
+def test_haze_preview_gets_brighter_and_flatter(tmp_path):
+    create_stats(tmp_path)
+    raw = np.random.default_rng(0).uniform(300, 1600, size=(13, 64, 64)).astype(np.float32)
+    clear, hazy = display_haze_pair(tmp_path, raw, apply_haze(tmp_path, raw, 0.4, "uniform"))
+    assert clear.shape == hazy.shape == (64, 64, 3)
+    assert hazy.mean() > clear.mean() and hazy.std() < clear.std()
