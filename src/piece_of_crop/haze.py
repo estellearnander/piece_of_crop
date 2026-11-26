@@ -10,13 +10,21 @@ wavelengths get more haze. With the "uniform" profile every band gets the share 
 The strength is not calibrated to a real aerosol optical depth (see notebook 07, section 2).
 """
 
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pandas as pd
+import torch
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 
-from .data import EuroSATDataset
+from .cnn import SmallCNN
+from .data import CLASS_NAMES, EuroSATDataset
+from .evaluate import MODEL_FILES
 from .features import extract_rf_features
+from .resnet import IMAGE_SIZE, build_resnet
+from .train import predict
 
 # Central wavelength of each band in nm, in the band order of the files (B01 ... B12, B8A)
 # (external: USGS EROS Archive, Sentinel-2, table "Spectral Bands and Resolution").
@@ -66,3 +74,31 @@ def rf_hazy_probabilities(model, test_rows: pd.DataFrame, cache, band_stats: pd.
         X_rgb, X_ms = extract_rf_features(hazy, band_stats)
         probabilities.append(model.predict_proba(X_rgb if input_type == "rgb" else X_ms))
     return np.vstack(probabilities)
+
+
+def load_saved_model(models_dir, model_name: str, input_type: str, seed: int, device="cpu"):
+    """Load one of the 18 saved models (notebooks 03 to 05)."""
+    path = Path(models_dir) / f"{MODEL_FILES[model_name]}_{input_type}_seed{seed}"
+    if model_name == "RandomForest":
+        forest = joblib.load(path.with_suffix(".joblib"))
+        assert list(forest.classes_) == list(range(len(CLASS_NAMES)))  # probability columns are classes 0 to 9
+        return forest
+    channels = 3 if input_type == "rgb" else 13
+    if model_name == "SmallCNN":
+        net = SmallCNN(in_channels=channels, num_classes=len(CLASS_NAMES))
+    else:
+        net = build_resnet(in_channels=channels, num_classes=len(CLASS_NAMES), pretrained=False)
+    net.load_state_dict(torch.load(path.with_suffix(".pt"), map_location="cpu"))
+    return net.to(device)
+
+
+def hazy_probabilities(model_name: str, model, test_rows: pd.DataFrame, cache, band_stats: pd.DataFrame,
+                       input_type: str, strength: float, profile: str, airlight, device="cpu") -> np.ndarray:
+    """Class probabilities of a saved model on the hazy test patches, in split order."""
+    if model_name == "RandomForest":
+        return rf_hazy_probabilities(model, test_rows, cache, band_stats, input_type, strength, profile, airlight)
+    image_size = IMAGE_SIZE if model_name == "ResNet18" else None
+    loader = hazy_test_loader(test_rows, cache, band_stats, input_type, strength, profile, airlight, image_size)
+    labels, proba = predict(model, loader, device)
+    assert np.array_equal(labels, test_rows["label"].to_numpy())  # same patches in the same order
+    return proba

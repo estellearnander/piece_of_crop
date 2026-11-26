@@ -7,6 +7,7 @@ import pytest
 from piece_of_crop import (
     CLASS_NAMES,
     block_bootstrap_ci,
+    caught_by_review,
     insurer_cost_matrix,
     listed_critical_confusions,
     BAND_NAMES,
@@ -78,3 +79,12 @@ def test_block_bootstrap_interval_is_wider_when_blocks_differ():
     values = np.repeat([0.0, 1.0, 0.0, 1.0, 0.0, 1.0], 5)
     low, high = block_bootstrap_ci(values, np.repeat(np.arange(6), 5), 500, rng)
     assert low < 0.5 < high
+
+
+def test_review_catches_the_least_confident_errors():
+    confidence = np.array([0.1, 0.2, 0.9, 0.95, 0.3, 0.99])
+    costly = np.array([True, False, False, True, False, False])
+    assert caught_by_review(confidence, costly, 0.0) == 0.0
+    assert caught_by_review(confidence, costly, 2 / 6) == 0.5  # reviews 0.1 and 0.2: one of two errors
+    assert caught_by_review(confidence, costly, 1.0) == 1.0
+    assert np.isnan(caught_by_review(confidence, np.zeros(6, dtype=bool), 0.5))

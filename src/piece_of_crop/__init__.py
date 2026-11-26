@@ -28,6 +28,7 @@ from .train import predict, predictions_table, seed_all, train_model, train_one_
 from .evaluate import (
     MODEL_FILES,
     block_bootstrap_ci,
+    caught_by_review,
     insurer_cost_matrix,
     listed_critical_confusions,
     load_predictions,
@@ -37,6 +38,8 @@ from .haze import (
     WAVELENGTHS_NM,
     add_haze,
     haze_share,
+    hazy_probabilities,
     hazy_test_loader,
+    load_saved_model,
     rf_hazy_probabilities,
 )

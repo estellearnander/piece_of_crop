@@ -96,3 +96,18 @@ def block_bootstrap_ci(values, blocks, n_bootstrap, rng, level=0.95):
         means[b] = block_sums[drawn].sum() / block_sizes[drawn].sum()
     tail = (1 - level) / 2
     return np.quantile(means, tail), np.quantile(means, 1 - tail)
+
+
+def caught_by_review(confidence, is_costly_error, review_share: float) -> float:
+    """Share of the costly errors that are among the least confident review_share of patches.
+
+    The patches a model is least sure about go to a human (the reject option,
+    Bishop, section 1.5.3); this measures how many costly errors that catches.
+    """
+    confidence = np.asarray(confidence)
+    is_costly_error = np.asarray(is_costly_error, dtype=bool)
+    if is_costly_error.sum() == 0:
+        return np.nan
+    n_review = int(round(review_share * len(confidence)))
+    reviewed = np.argsort(confidence, kind="stable")[:n_review]  # least confident first
+    return is_costly_error[reviewed].sum() / is_costly_error.sum()
